@@ -1,0 +1,23 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+  "start": "live-server --port=3000 --open=./index.html",
+  "lint": "eslint . --ext .js,.html",
+  "format": "prettier --write ."
+},
+
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "face-api.js": "^0.22.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.25.1",
+    "live-server": "^1.2.2",
+    "prettier": "^3.5.3"
+  }
+}
