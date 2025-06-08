@@ -14,17 +14,57 @@ statusElement.style.border = "1px solid red";
 statusElement.textContent = "Nicht verbunden mit Signaling-Server";
 document.body.insertBefore(statusElement, startBtn.parentNode);
 
+// Debugging-Anzeige hinzufügen
+const debugElement = document.createElement("div");
+debugElement.id = "debugInfo";
+debugElement.style.padding = "5px";
+debugElement.style.margin = "5px 0";
+debugElement.style.fontSize = "12px";
+debugElement.style.color = "#666";
+debugElement.style.border = "1px dashed #ccc";
+debugElement.style.display = "none"; // Standardmäßig ausgeblendet
+document.body.insertBefore(debugElement, statusElement);
+
+// Debug-Toggle-Button
+const debugBtn = document.createElement("button");
+debugBtn.textContent = "Debug-Info anzeigen";
+debugBtn.onclick = () => {
+  if (debugElement.style.display === "none") {
+    debugElement.style.display = "block";
+    debugBtn.textContent = "Debug-Info ausblenden";
+  } else {
+    debugElement.style.display = "none";
+    debugBtn.textContent = "Debug-Info anzeigen";
+  }
+};
+document.body.insertBefore(debugBtn, debugElement);
+
+// Debug-Logging-Funktion
+function debug(message) {
+  const now = new Date().toLocaleTimeString();
+  console.log(`[${now}] ${message}`);
+  const logEntry = document.createElement("div");
+  logEntry.textContent = `[${now}] ${message}`;
+  debugElement.appendChild(logEntry);
+  debugElement.scrollTop = debugElement.scrollHeight;
+
+  // Begrenze die Anzahl der Einträge
+  while (debugElement.childNodes.length > 50) {
+    debugElement.removeChild(debugElement.firstChild);
+  }
+}
+
 // 0) TensorFlow.js CPU-Backend aktivieren
 (async () => {
   if (window.faceapi && faceapi.tf) {
     await faceapi.tf.setBackend("cpu");
-    console.log("🖥️ TensorFlow.js Backend gesetzt auf CPU");
+    debug("🖥️ TensorFlow.js Backend gesetzt auf CPU");
   }
 })();
 
 // Jede Browser-Instanz bekommt eine eindeutige ID
 const deviceId = "device-" + Math.random().toString(36).substr(2, 8);
-console.log("🔖 Meine deviceId:", deviceId);
+debug("🔖 Meine deviceId: " + deviceId);
 
 // Button bis WebSocket open deaktiviert lassen
 startBtn.disabled = true;
@@ -34,224 +74,381 @@ let peerConnection;
 
 // STUN-Server-Konfiguration für ICE
 const config = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ],
 };
+
+// WebSocket-Verbindung und Steuerung
+let socket;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 3000; // 3 Sekunden
 
 // 1) WebSocket einrichten mit Retry-Mechanismus
 function connectWebSocket() {
-  console.log("Versuche WebSocket-Verbindung aufzubauen...");
+  // Wenn bereits ein Reconnect-Timer läuft, abbrechen
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  debug("Versuche WebSocket-Verbindung aufzubauen...");
   statusElement.textContent = "Verbindung wird aufgebaut...";
+  statusElement.style.color = "blue";
+  statusElement.style.backgroundColor = "#eeeeff";
 
-  const wsUrl =
-    "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app";
-  console.log(`WebSocket-URL: ${wsUrl}`);
+  // Verschiedene URLs ausprobieren
+  const baseUrl = "framelinkwebrtc-multidevice-chat-production.up.railway.app";
+  // Erstelle ein Array mit möglichen WebSocket-URLs
+  const wsUrls = [
+    `wss://${baseUrl}`, // Standard-URL ohne Port
+    `wss://${baseUrl}/`, // Mit Trailing Slash
+    `wss://${baseUrl}/ws`, // Mit /ws Pfad
+    `wss://${baseUrl}/socket`, // Mit /socket Pfad
+    `wss://${baseUrl}:443`, // Mit explizitem HTTPS-Port
+  ];
 
-  const socket = new WebSocket(wsUrl);
+  // Index der aktuellen URL
+  const currentUrlIndex = reconnectAttempts % wsUrls.length;
+  const wsUrl = wsUrls[currentUrlIndex];
 
-  socket.onopen = () => {
-    console.log("✅ WebSocket verbunden");
-    statusElement.style.color = "green";
-    statusElement.style.backgroundColor = "#eeffee";
-    statusElement.style.border = "1px solid green";
-    statusElement.textContent = "Verbunden mit Signaling-Server";
-    startBtn.disabled = false; // Button aktivieren
-  };
+  debug(`WebSocket-URL (Versuch ${reconnectAttempts + 1}): ${wsUrl}`);
 
-  socket.onerror = (err) => {
-    console.error("❌ WebSocket-Error:", err);
-    statusElement.textContent = "Fehler bei der Verbindung zum Server";
-    // Details im Log
-    console.log("WebSocket Error Details:", {
-      url: wsUrl,
-      readyState: socket.readyState,
-    });
-  };
+  // Verbindungstimeout setzen
+  const connectionTimeout = setTimeout(() => {
+    debug("WebSocket-Verbindungs-Timeout nach 10 Sekunden");
+    if (socket && socket.readyState === WebSocket.CONNECTING) {
+      socket.close();
+      handleReconnect("Timeout");
+    }
+  }, 10000);
 
-  socket.onclose = (event) => {
-    const reasons = {
-      1000: "Normal Closure",
-      1001: "Going Away",
-      1002: "Protocol Error",
-      1003: "Unsupported Data",
-      1005: "No Status Received",
-      1006: "Abnormal Closure",
-      1007: "Invalid frame payload data",
-      1008: "Policy Violation",
-      1009: "Message too big",
-      1010: "Missing Extension",
-      1011: "Internal Error",
-      1012: "Service Restart",
-      1013: "Try Again Later",
-      1014: "Bad Gateway",
-      1015: "TLS Handshake",
+  try {
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      clearTimeout(connectionTimeout);
+      debug("✅ WebSocket verbunden");
+      statusElement.style.color = "green";
+      statusElement.style.backgroundColor = "#eeffee";
+      statusElement.style.border = "1px solid green";
+      statusElement.textContent = "Verbunden mit Signaling-Server";
+      startBtn.disabled = false; // Button aktivieren
+      reconnectAttempts = 0; // Reset reconnect counter on successful connection
+
+      // Ping senden, um die Verbindung zu testen
+      sendPing();
     };
 
-    const reason = reasons[event.code] || "Unknown reason";
-    console.warn(
-      `⚠️ WebSocket geschlossen: Code ${event.code} (${reason}), Grund: ${event.reason}`
-    );
-    statusElement.style.color = "red";
-    statusElement.style.backgroundColor = "#ffeeee";
-    statusElement.style.border = "1px solid red";
-    statusElement.textContent = `Verbindung getrennt: Code ${event.code} (${reason})`;
-    startBtn.disabled = true; // Button deaktivieren
+    socket.onerror = (err) => {
+      debug(`❌ WebSocket-Error: ${JSON.stringify(err)}`);
 
-    // Nach 5 Sekunden erneut versuchen
-    setTimeout(() => {
-      console.log("Versuche erneute Verbindung...");
-      initializeSocket();
-    }, 5000);
-  };
-
-  // 6) Signaling-Handler + dynamisches Umschalten
-  socket.onmessage = async ({ data }) => {
-    console.log(
-      "📩 Nachricht erhalten:",
-      data.substring(0, 100) + (data.length > 100 ? "..." : "")
-    );
-
-    try {
-      const msg = JSON.parse(data);
-
-      // —— Dynamisches Umschalten: DEVICE_ACTIVE / DEVICE_INACTIVE —— //
-      if (msg.type === "DEVICE_ACTIVE") {
-        console.log("🔵 DEVICE_ACTIVE von", msg.deviceId);
-        if (!localStream) return;
-
-        if (msg.deviceId === deviceId) {
-          localStream.getVideoTracks().forEach((t) => (t.enabled = true));
-          localStream.getAudioTracks().forEach((t) => (t.enabled = true));
-          console.log("✅ Meine Tracks aktiviert");
-        } else {
-          localStream.getVideoTracks().forEach((t) => (t.enabled = false));
-          localStream.getAudioTracks().forEach((t) => (t.enabled = false));
-          console.log("⛔ Meine Tracks deaktiviert");
-        }
-        return;
+      // Stelle sicher, dass wir nicht mehrfach handleReconnect aufrufen
+      if (socket.readyState === WebSocket.CONNECTING) {
+        clearTimeout(connectionTimeout);
+        handleReconnect("Error");
       }
+    };
 
-      if (msg.type === "DEVICE_INACTIVE" && msg.deviceId === deviceId) {
-        console.log("⚪ DEVICE_INACTIVE für mich");
-        if (localStream) {
-          localStream.getVideoTracks().forEach((t) => (t.enabled = false));
-          localStream.getAudioTracks().forEach((t) => (t.enabled = false));
-          console.log("⛔ Meine Tracks (INACTIVE) deaktiviert");
-        }
-        return;
-      }
+    socket.onclose = (event) => {
+      clearTimeout(connectionTimeout);
 
-      // —— WebRTC-Signaling: Offer, Answer, ICE —— //
-      if (msg.type === "offer") {
-        console.log("📨 Offer erhalten");
-        // Wenn keine PeerConnection existiert, initialisiere sie
-        if (!peerConnection) {
-          await initPeerConnection();
-          await loadFaceModels();
-          startFaceDetection();
-        }
-        // Wenn peerConnection momentan in 'stable' ist, setze Remote-Offer und antworte
-        if (peerConnection.signalingState === "stable") {
-          await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(msg)
-          );
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-          socket.send(JSON.stringify({ type: "answer", ...answer }));
-          console.log("📨 Answer gesendet");
-        } else {
-          console.warn(
-            "PeerConnection nicht im stable-Zustand, kein Remote-Offer angewendet."
-          );
-        }
-        return;
-      }
+      const reasons = {
+        1000: "Normal Closure",
+        1001: "Going Away",
+        1002: "Protocol Error",
+        1003: "Unsupported Data",
+        1005: "No Status Received",
+        1006: "Abnormal Closure",
+        1007: "Invalid frame payload data",
+        1008: "Policy Violation",
+        1009: "Message too big",
+        1010: "Missing Extension",
+        1011: "Internal Error",
+        1012: "Service Restart",
+        1013: "Try Again Later",
+        1014: "Bad Gateway",
+        1015: "TLS Handshake",
+      };
 
-      if (msg.type === "answer") {
-        console.log("📨 Answer erhalten");
-        // Nur anwenden, wenn wir gerade eine lokale Offer erstellt haben
-        if (
-          peerConnection &&
-          peerConnection.signalingState === "have-local-offer"
-        ) {
-          await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(msg)
-          );
-        } else {
-          console.warn(
-            "Keine lokale Offer ausstehend, kein Remote-Answer angewendet."
-          );
-        }
-        return;
-      }
+      const reason = reasons[event.code] || "Unknown reason";
+      debug(
+        `⚠️ WebSocket geschlossen: Code ${event.code} (${reason}), Grund: ${event.reason || "Kein Grund angegeben"}`
+      );
 
-      if (msg.type === "ice") {
-        console.log("📡 ICE-Candidate erhalten");
-        if (peerConnection) {
-          try {
-            await peerConnection.addIceCandidate(msg.candidate);
-          } catch (e) {
-            console.warn("ICE-Candidate konnte nicht hinzugefügt werden:", e);
+      statusElement.style.color = "red";
+      statusElement.style.backgroundColor = "#ffeeee";
+      statusElement.style.border = "1px solid red";
+      statusElement.textContent = `Verbindung getrennt: Code ${event.code} (${reason})`;
+      startBtn.disabled = true; // Button deaktivieren
+
+      handleReconnect("Closed");
+    };
+
+    // 6) Signaling-Handler + dynamisches Umschalten
+    socket.onmessage = async ({ data }) => {
+      debug(
+        "📩 Nachricht erhalten: " +
+          data.substring(0, 50) +
+          (data.length > 50 ? "..." : "")
+      );
+
+      try {
+        const msg = JSON.parse(data);
+
+        // —— Pong-Antwort —— //
+        if (msg.type === "pong") {
+          debug("🏓 Pong erhalten");
+          return;
+        }
+
+        // —— Dynamisches Umschalten: DEVICE_ACTIVE / DEVICE_INACTIVE —— //
+        if (msg.type === "DEVICE_ACTIVE") {
+          debug("🔵 DEVICE_ACTIVE von " + msg.deviceId);
+          if (!localStream) return;
+
+          if (msg.deviceId === deviceId) {
+            localStream.getVideoTracks().forEach((t) => (t.enabled = true));
+            localStream.getAudioTracks().forEach((t) => (t.enabled = true));
+            debug("✅ Meine Tracks aktiviert");
+          } else {
+            localStream.getVideoTracks().forEach((t) => (t.enabled = false));
+            localStream.getAudioTracks().forEach((t) => (t.enabled = false));
+            debug("⛔ Meine Tracks deaktiviert");
           }
+          return;
         }
-        return;
+
+        if (msg.type === "DEVICE_INACTIVE" && msg.deviceId === deviceId) {
+          debug("⚪ DEVICE_INACTIVE für mich");
+          if (localStream) {
+            localStream.getVideoTracks().forEach((t) => (t.enabled = false));
+            localStream.getAudioTracks().forEach((t) => (t.enabled = false));
+            debug("⛔ Meine Tracks (INACTIVE) deaktiviert");
+          }
+          return;
+        }
+
+        // —— WebRTC-Signaling: Offer, Answer, ICE —— //
+        if (msg.type === "offer") {
+          debug("📨 Offer erhalten");
+          // Wenn keine PeerConnection existiert, initialisiere sie
+          if (!peerConnection) {
+            await initPeerConnection();
+            await loadFaceModels();
+            startFaceDetection();
+          }
+          // Wenn peerConnection momentan in 'stable' ist, setze Remote-Offer und antworte
+          if (peerConnection.signalingState === "stable") {
+            await peerConnection.setRemoteDescription(
+              new RTCSessionDescription(msg)
+            );
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            sendMessage({ type: "answer", ...answer });
+            debug("📨 Answer gesendet");
+          } else {
+            debug(
+              "PeerConnection nicht im stable-Zustand, kein Remote-Offer angewendet."
+            );
+          }
+          return;
+        }
+
+        if (msg.type === "answer") {
+          debug("📨 Answer erhalten");
+          // Nur anwenden, wenn wir gerade eine lokale Offer erstellt haben
+          if (
+            peerConnection &&
+            peerConnection.signalingState === "have-local-offer"
+          ) {
+            await peerConnection.setRemoteDescription(
+              new RTCSessionDescription(msg)
+            );
+          } else {
+            debug(
+              "Keine lokale Offer ausstehend, kein Remote-Answer angewendet."
+            );
+          }
+          return;
+        }
+
+        if (msg.type === "ice") {
+          debug("📡 ICE-Candidate erhalten");
+          if (peerConnection) {
+            try {
+              await peerConnection.addIceCandidate(msg.candidate);
+            } catch (e) {
+              debug(
+                "ICE-Candidate konnte nicht hinzugefügt werden: " + e.message
+              );
+            }
+          }
+          return;
+        }
+
+        // Unbekannter Nachrichtentyp
+        debug("⚠️ Unbekannter Nachrichtentyp: " + msg.type);
+      } catch (error) {
+        debug("Fehler beim Verarbeiten der Nachricht: " + error.message);
       }
+    };
+  } catch (err) {
+    clearTimeout(connectionTimeout);
+    debug("Fehler beim Erstellen der WebSocket-Instanz: " + err.message);
+    handleReconnect("Creation Error");
+  }
+}
 
-      // Unbekannter Nachrichtentyp
-      console.log("⚠️ Unbekannter Nachrichtentyp:", msg.type);
-    } catch (error) {
-      console.error("Fehler beim Verarbeiten der Nachricht:", error);
+// Helper-Funktion für die WebSocket-Nachrichtensendung
+function sendMessage(message) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    const messageStr = JSON.stringify(message);
+    socket.send(messageStr);
+    debug(
+      "📤 Nachricht gesendet: " +
+        messageStr.substring(0, 50) +
+        (messageStr.length > 50 ? "..." : "")
+    );
+    return true;
+  } else {
+    debug(
+      "⚠️ Nachricht konnte nicht gesendet werden - WebSocket nicht verbunden"
+    );
+    return false;
+  }
+}
+
+// Ping-Funktion
+function sendPing() {
+  if (sendMessage({ type: "ping", timestamp: Date.now() })) {
+    debug("🏓 Ping gesendet");
+  }
+}
+
+// Reconnect-Logik
+function handleReconnect(reason) {
+  debug(`Reconnect ausgelöst durch: ${reason}`);
+
+  reconnectAttempts++;
+
+  if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+    debug(
+      `Maximale Anzahl an Wiederverbindungsversuchen (${MAX_RECONNECT_ATTEMPTS}) erreicht.`
+    );
+    statusElement.textContent = `Verbindung fehlgeschlagen nach ${MAX_RECONNECT_ATTEMPTS} Versuchen. Bitte Seite neu laden.`;
+    return;
+  }
+
+  const delay = RECONNECT_DELAY * Math.min(reconnectAttempts, 5);
+  debug(
+    `Versuche erneute Verbindung in ${delay / 1000} Sekunden... (Versuch ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
+  );
+  statusElement.textContent = `Verbindung wird in ${delay / 1000} Sekunden erneut versucht... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
+
+  reconnectTimer = setTimeout(() => {
+    connectWebSocket();
+  }, delay);
+}
+
+// HTTP-Verbindungstest vor WebSocket-Verbindung
+async function testHttpConnection() {
+  try {
+    debug("Teste HTTP-Verbindung zum Server...");
+    const baseUrl =
+      "https://framelinkwebrtc-multidevice-chat-production.up.railway.app";
+
+    // Teste Ping-Endpoint
+    const pingUrl = `${baseUrl}/ping`;
+    debug(`Versuche HTTP-Verbindung zu: ${pingUrl}`);
+
+    const response = await fetch(pingUrl, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      mode: "cors",
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      debug(`✅ HTTP-Verbindung erfolgreich: ${JSON.stringify(data)}`);
+      return true;
+    } else {
+      debug(
+        `❌ HTTP-Verbindung fehlgeschlagen: ${response.status} ${response.statusText}`
+      );
+
+      // Versuche die Root-URL
+      debug(`Versuche HTTP-Verbindung zu: ${baseUrl}`);
+      const rootResponse = await fetch(baseUrl, {
+        method: "GET",
+        mode: "cors",
+      });
+
+      if (rootResponse.ok) {
+        debug(`✅ HTTP-Verbindung zur Root-URL erfolgreich`);
+        return true;
+      } else {
+        debug(
+          `❌ HTTP-Verbindung zur Root-URL fehlgeschlagen: ${rootResponse.status} ${rootResponse.statusText}`
+        );
+        return false;
+      }
     }
-  };
-
-  return socket;
+  } catch (error) {
+    debug(`❌ HTTP-Verbindungstest fehlgeschlagen: ${error.message}`);
+    return false;
+  }
 }
 
 // 2) PeerConnection + lokale Medien abrufen
 async function initPeerConnection() {
   try {
-    console.log("Starte Medien-Zugriff...");
+    debug("Starte Medien-Zugriff...");
     localStream = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: true,
     });
-    console.log("✅ Medien-Zugriff erfolgreich");
+    debug("✅ Medien-Zugriff erfolgreich");
     localVideo.srcObject = localStream;
 
-    console.log("Erstelle RTCPeerConnection...");
+    debug("Erstelle RTCPeerConnection...");
     peerConnection = new RTCPeerConnection(config);
     localStream
       .getTracks()
       .forEach((track) => peerConnection.addTrack(track, localStream));
 
     peerConnection.ontrack = ({ streams: [stream] }) => {
-      console.log("🎬 Remote-Track erhalten");
+      debug("🎬 Remote-Track erhalten");
       remoteVideo.srcObject = stream;
     };
 
     peerConnection.onicecandidate = ({ candidate }) => {
-      if (candidate && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "ice", candidate }));
-        console.log("📡 ICE-Candidate gesendet");
+      if (candidate) {
+        sendMessage({ type: "ice", candidate });
+        debug("📡 ICE-Candidate gesendet");
       }
     };
 
     // Zusätzliche Event-Handler für besseres Debugging
     peerConnection.oniceconnectionstatechange = () => {
-      console.log("ICE Verbindungsstatus:", peerConnection.iceConnectionState);
+      debug("ICE Verbindungsstatus: " + peerConnection.iceConnectionState);
     };
 
     peerConnection.onsignalingstatechange = () => {
-      console.log("Signaling-Status:", peerConnection.signalingState);
+      debug("Signaling-Status: " + peerConnection.signalingState);
     };
 
     peerConnection.onconnectionstatechange = () => {
-      console.log("Verbindungsstatus:", peerConnection.connectionState);
+      debug("Verbindungsstatus: " + peerConnection.connectionState);
     };
 
-    console.log("🎬 PeerConnection initialisiert");
+    debug("🎬 PeerConnection initialisiert");
     return true;
   } catch (error) {
-    console.error("❌ Fehler beim Initialisieren der PeerConnection:", error);
+    debug("❌ Fehler beim Initialisieren der PeerConnection: " + error.message);
     alert("Fehler beim Zugriff auf Kamera/Mikrofon: " + error.message);
     return false;
   }
@@ -260,33 +457,29 @@ async function initPeerConnection() {
 // 3) Face-API-Modelle laden
 async function loadFaceModels() {
   try {
-    console.log("Lade Face-API-Modelle...");
+    debug("Lade Face-API-Modelle...");
     await faceapi.nets.tinyFaceDetector.loadFromUri("models");
-    console.log("✅ face-api.js Modelle geladen");
+    debug("✅ face-api.js Modelle geladen");
     return true;
   } catch (error) {
-    console.error("❌ Fehler beim Laden der Face-API-Modelle:", error);
+    debug("❌ Fehler beim Laden der Face-API-Modelle: " + error.message);
     return false;
   }
 }
 
 // 4) Device-Status versenden (mit fester Geräte-ID)
 function sendDeviceStatus(isActive) {
-  if (socket.readyState === WebSocket.OPEN) {
-    const msg = JSON.stringify({
-      type: isActive ? "DEVICE_ACTIVE" : "DEVICE_INACTIVE",
-      deviceId: deviceId,
-    });
-    socket.send(msg);
-    console.log(
-      "📡 Device status:",
-      isActive ? "ACTIVE" : "INACTIVE",
-      "– von",
+  sendMessage({
+    type: isActive ? "DEVICE_ACTIVE" : "DEVICE_INACTIVE",
+    deviceId: deviceId,
+  });
+
+  debug(
+    "📡 Device status: " +
+      (isActive ? "ACTIVE" : "INACTIVE") +
+      " – von " +
       deviceId
-    );
-  } else {
-    console.warn("WebSocket nicht bereit, Status konnte nicht gesendet werden");
-  }
+  );
 }
 
 // 5) Face-Detection-Loop (nur an Status-Änderungen senden)
@@ -296,11 +489,11 @@ function startFaceDetection() {
   let detectionFailCount = 0;
   const MAX_FAILURES = 3; // Nach 3 Fehlern in Folge als "kein Gesicht" werten
 
-  console.log("🔍 Starte Face-Detection-Loop");
+  debug("🔍 Starte Face-Detection-Loop");
 
   const detectionInterval = setInterval(async () => {
     if (!localVideo.srcObject || !localVideo.videoWidth) {
-      console.warn("Video noch nicht bereit für Face-Detection");
+      debug("Video noch nicht bereit für Face-Detection");
       return;
     }
 
@@ -321,19 +514,19 @@ function startFaceDetection() {
       if (isActive !== lastFaceState) {
         sendDeviceStatus(isActive);
         lastFaceState = isActive;
-        console.log(
-          "👤 Gesichtserkennung:",
-          isActive ? "Gesicht erkannt" : "Kein Gesicht"
+        debug(
+          "👤 Gesichtserkennung: " +
+            (isActive ? "Gesicht erkannt" : "Kein Gesicht")
         );
       }
     } catch (err) {
-      console.error("⚠️ Face-Detection-Error:", err.name, err.message);
+      debug("⚠️ Face-Detection-Error: " + err.name + " " + err.message);
       detectionFailCount++;
 
       if (detectionFailCount >= MAX_FAILURES && lastFaceState !== false) {
         sendDeviceStatus(false);
         lastFaceState = false;
-        console.log(
+        debug(
           "⚠️ Face-Detection: Mehrere Fehler in Folge, setze Status auf INACTIVE"
         );
       }
@@ -341,7 +534,7 @@ function startFaceDetection() {
       if (localStream && detectionFailCount >= MAX_FAILURES) {
         localStream.getVideoTracks().forEach((t) => (t.enabled = false));
         localStream.getAudioTracks().forEach((t) => (t.enabled = false));
-        console.log("⛔ Tracks deaktiviert wegen Face-Detection-Fehlern");
+        debug("⛔ Tracks deaktiviert wegen Face-Detection-Fehlern");
       }
     }
   }, 1000);
@@ -352,63 +545,13 @@ function startFaceDetection() {
   });
 }
 
-// Initialisiere die Socket-Verbindung
-let socket;
-function initializeSocket() {
-  socket = connectWebSocket();
-}
-
-// Starte die Socket-Verbindung
-initializeSocket();
-
-// 7) Klick-Handler: Nur einmal Offer erzeugen + face-Detection starten
-startBtn.addEventListener("click", async () => {
-  console.log("▶️ Start-Button geklickt");
-
-  if (socket.readyState !== WebSocket.OPEN) {
-    console.error("WebSocket nicht offen – Abbruch");
-    alert("Keine Verbindung zum Server. Bitte warten oder Seite neu laden.");
-    return;
-  }
-
-  // Wenn keine PeerConnection existiert, initialisiere und sende Offer
-  if (!peerConnection) {
-    const peerInitialized = await initPeerConnection();
-    if (!peerInitialized) {
-      console.error("PeerConnection konnte nicht initialisiert werden");
-      return;
-    }
-
-    const modelsLoaded = await loadFaceModels();
-    if (modelsLoaded) {
-      startFaceDetection();
-    } else {
-      console.warn("Face-Detection startet ohne Modelle!");
-    }
-
-    try {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type: "offer", ...offer }));
-      console.log("📨 Offer gesendet");
-    } catch (error) {
-      console.error("Fehler beim Erstellen/Senden des Angebots:", error);
-      alert("Fehler beim Starten des Anrufs: " + error.message);
-    }
-    return;
-  }
-
-  console.warn("PeerConnection existiert bereits, kein neues Offer gesendet.");
-});
-
 // Ping-Funktion, um die Verbindung aktiv zu halten
 function startKeepAlive() {
   const pingInterval = setInterval(() => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
-      console.log("🏓 Ping gesendet");
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      sendPing();
     } else {
-      console.warn("Ping nicht möglich - WebSocket nicht verbunden");
+      debug("Ping nicht möglich - WebSocket nicht verbunden");
     }
   }, 30000); // Alle 30 Sekunden
 
@@ -418,5 +561,66 @@ function startKeepAlive() {
   });
 }
 
-// Starte Keep-Alive nach kurzer Verzögerung
-setTimeout(startKeepAlive, 5000);
+// 7) Klick-Handler: Nur einmal Offer erzeugen + face-Detection starten
+startBtn.addEventListener("click", async () => {
+  debug("▶️ Start-Button geklickt");
+
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    debug("WebSocket nicht offen – Abbruch");
+    alert("Keine Verbindung zum Server. Bitte warten oder Seite neu laden.");
+    return;
+  }
+
+  // Wenn keine PeerConnection existiert, initialisiere und sende Offer
+  if (!peerConnection) {
+    const peerInitialized = await initPeerConnection();
+    if (!peerInitialized) {
+      debug("PeerConnection konnte nicht initialisiert werden");
+      return;
+    }
+
+    const modelsLoaded = await loadFaceModels();
+    if (modelsLoaded) {
+      startFaceDetection();
+    } else {
+      debug("Face-Detection startet ohne Modelle!");
+    }
+
+    try {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      sendMessage({ type: "offer", ...offer });
+      debug("📨 Offer gesendet");
+    } catch (error) {
+      debug("Fehler beim Erstellen/Senden des Angebots: " + error.message);
+      alert("Fehler beim Starten des Anrufs: " + error.message);
+    }
+    return;
+  }
+
+  debug("PeerConnection existiert bereits, kein neues Offer gesendet.");
+});
+
+// Initialisierung der App
+async function initApp() {
+  debug("🚀 App wird initialisiert...");
+
+  // Zuerst HTTP-Verbindung testen
+  const httpConnected = await testHttpConnection();
+  if (httpConnected) {
+    debug("HTTP-Verbindung zum Server hergestellt, versuche WebSocket...");
+  } else {
+    debug("HTTP-Verbindung fehlgeschlagen, versuche trotzdem WebSocket...");
+    statusElement.textContent =
+      "Server scheint nicht erreichbar zu sein, versuche Verbindung...";
+  }
+
+  // WebSocket-Verbindung starten
+  connectWebSocket();
+
+  // Keep-Alive starten
+  startKeepAlive();
+}
+
+// App starten
+window.addEventListener("load", initApp);

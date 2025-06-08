@@ -1,0 +1,361 @@
+<!doctype html>
+<html>
+  <head>
+    <title>WebSocket Debug</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border: 1px solid #ccc;
+      }
+      .success {
+        background-color: #eeffee;
+        border-color: green;
+      }
+      .error {
+        background-color: #ffeeee;
+        border-color: red;
+      }
+      .pending {
+        background-color: #eeeeff;
+        border-color: blue;
+      }
+      #log {
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin-top: 10px;
+        height: 300px;
+        overflow: auto;
+      }
+      button {
+        padding: 8px 16px;
+        margin: 5px;
+      }
+      .url-list {
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebRTC-Verbindungs-Debugging</h1>
+
+    <div>
+      <h2>1. HTTP-Verbindung testen</h2>
+      <div id="httpStatus" class="status">Noch nicht getestet</div>
+      <button id="testHttp">HTTP-Verbindung testen</button>
+    </div>
+
+    <div>
+      <h2>2. WebSocket-Verbindung testen</h2>
+      <div class="url-list">
+        <strong>URLs zum Testen:</strong>
+        <ul id="wsUrls">
+          <!-- URLs werden dynamisch hinzugefügt -->
+        </ul>
+      </div>
+      <div id="wsStatus" class="status">Noch nicht getestet</div>
+      <button id="testWs">WebSocket-Verbindung testen</button>
+    </div>
+
+    <div>
+      <h2>3. WebRTC-Konfiguration testen</h2>
+      <div id="rtcStatus" class="status">Noch nicht getestet</div>
+      <button id="testRtc">WebRTC-Konfiguration testen</button>
+    </div>
+
+    <h2>Log</h2>
+    <button id="clearLog">Log löschen</button>
+    <div id="log"></div>
+
+    <script>
+      const httpStatusEl = document.getElementById("httpStatus");
+      const wsStatusEl = document.getElementById("wsStatus");
+      const rtcStatusEl = document.getElementById("rtcStatus");
+      const logEl = document.getElementById("log");
+      const testHttpBtn = document.getElementById("testHttp");
+      const testWsBtn = document.getElementById("testWs");
+      const testRtcBtn = document.getElementById("testRtc");
+      const clearLogBtn = document.getElementById("clearLog");
+      const wsUrlsEl = document.getElementById("wsUrls");
+
+      // URLs definieren
+      const baseUrl =
+        "framelinkwebrtc-multidevice-chat-production.up.railway.app";
+      const httpUrls = [
+        `https://${baseUrl}`,
+        `https://${baseUrl}/ping`,
+        `https://${baseUrl}/health`,
+      ];
+
+      const wsUrls = [
+        `wss://${baseUrl}`, // Standard-URL ohne Port
+        `wss://${baseUrl}/`, // Mit Trailing Slash
+        `wss://${baseUrl}/ws`, // Mit /ws Pfad
+        `wss://${baseUrl}/socket`, // Mit /socket Pfad
+        `wss://${baseUrl}:443`, // Mit explizitem HTTPS-Port
+      ];
+
+      // WebSocket-URLs in die Liste eintragen
+      wsUrls.forEach((url) => {
+        const li = document.createElement("li");
+        li.textContent = url;
+        wsUrlsEl.appendChild(li);
+      });
+
+      function log(message, isError = false) {
+        const entry = document.createElement("div");
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        if (isError) {
+          entry.style.color = "red";
+        }
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      clearLogBtn.addEventListener("click", () => {
+        logEl.innerHTML = "";
+        log("Log gelöscht");
+      });
+
+      // HTTP-Test
+      testHttpBtn.addEventListener("click", async () => {
+        httpStatusEl.textContent = "Verbindung wird getestet...";
+        httpStatusEl.className = "status pending";
+
+        log("Teste HTTP-Verbindung...");
+        let allFailed = true;
+
+        for (const url of httpUrls) {
+          log(`Versuche Verbindung zu: ${url}`);
+
+          try {
+            const startTime = Date.now();
+            const response = await fetch(url, {
+              method: "GET",
+              headers: { "Content-Type": "application/json" },
+              mode: "cors",
+            });
+            const endTime = Date.now();
+
+            const text = await response.text();
+            log(
+              `Antwort von ${url}: Status ${response.status} (${endTime - startTime}ms)`
+            );
+            log(
+              `Antwort-Inhalt: ${text.substring(0, 100)}${text.length > 100 ? "..." : ""}`
+            );
+
+            if (response.ok) {
+              allFailed = false;
+              httpStatusEl.innerHTML = `<strong>✅ Verbindung erfolgreich zu ${url}</strong><br>Status: ${response.status}<br>Zeit: ${endTime - startTime}ms`;
+              httpStatusEl.className = "status success";
+            }
+          } catch (err) {
+            log(`Fehler bei ${url}: ${err.message}`, true);
+          }
+        }
+
+        if (allFailed) {
+          httpStatusEl.textContent = `❌ Alle HTTP-Verbindungen fehlgeschlagen`;
+          httpStatusEl.className = "status error";
+          log("Alle HTTP-Verbindungen fehlgeschlagen", true);
+        }
+      });
+
+      // WebSocket-Test
+      testWsBtn.addEventListener("click", () => {
+        wsStatusEl.textContent = "Verbindung wird getestet...";
+        wsStatusEl.className = "status pending";
+
+        log("Versuche WebSocket-Verbindung aufzubauen...");
+        let successCount = 0;
+        let activeTests = wsUrls.length;
+
+        wsUrls.forEach((wsUrl, index) => {
+          log(`Teste WebSocket-URL (${index + 1}): ${wsUrl}`);
+
+          // Timeout für den Verbindungsversuch
+          const connectionTimeout = setTimeout(() => {
+            log(`Timeout beim Verbinden zu ${wsUrl}`, true);
+            activeTests--;
+            checkAllDone();
+          }, 10000);
+
+          try {
+            const socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+              clearTimeout(connectionTimeout);
+              log(`✅ WebSocket verbunden zu ${wsUrl}`);
+              successCount++;
+
+              // Ping senden
+              socket.send(JSON.stringify({ type: "ping", time: Date.now() }));
+              log(`Ping-Nachricht an ${wsUrl} gesendet`);
+
+              wsStatusEl.innerHTML = `<strong>✅ Verbunden mit ${wsUrl}</strong><br>Erfolgreich: ${successCount}/${wsUrls.length}`;
+              wsStatusEl.className = "status success";
+
+              // Nach 5 Sekunden schließen
+              setTimeout(() => {
+                socket.close();
+                log(`WebSocket zu ${wsUrl} planmäßig geschlossen`);
+                activeTests--;
+                checkAllDone();
+              }, 5000);
+            };
+
+            socket.onerror = (err) => {
+              clearTimeout(connectionTimeout);
+              log(`❌ WebSocket-Error bei ${wsUrl}`, true);
+
+              if (successCount === 0) {
+                wsStatusEl.innerHTML = `<strong>❌ Fehler bei Verbindung zu ${wsUrl}</strong>`;
+                wsStatusEl.className = "status error";
+              }
+
+              activeTests--;
+              checkAllDone();
+            };
+
+            socket.onclose = (event) => {
+              clearTimeout(connectionTimeout);
+              const reasons = {
+                1000: "Normal Closure",
+                1001: "Going Away",
+                1002: "Protocol Error",
+                1003: "Unsupported Data",
+                1005: "No Status Received",
+                1006: "Abnormal Closure",
+                1007: "Invalid frame payload data",
+                1008: "Policy Violation",
+                1009: "Message too big",
+                1010: "Missing Extension",
+                1011: "Internal Error",
+                1012: "Service Restart",
+                1013: "Try Again Later",
+                1014: "Bad Gateway",
+                1015: "TLS Handshake",
+              };
+
+              const reason = reasons[event.code] || "Unknown reason";
+              log(
+                `WebSocket zu ${wsUrl} geschlossen: Code ${event.code} (${reason}), Grund: ${event.reason || "Kein Grund angegeben"}`
+              );
+
+              activeTests--;
+              checkAllDone();
+            };
+
+            socket.onmessage = (event) => {
+              log(`Nachricht von ${wsUrl} erhalten: ${event.data}`);
+            };
+          } catch (err) {
+            clearTimeout(connectionTimeout);
+            log(
+              `Fehler beim Erstellen der WebSocket-Verbindung zu ${wsUrl}: ${err.message}`,
+              true
+            );
+            activeTests--;
+            checkAllDone();
+          }
+        });
+
+        function checkAllDone() {
+          if (activeTests === 0) {
+            if (successCount === 0) {
+              wsStatusEl.innerHTML = `<strong>❌ Alle WebSocket-Verbindungen fehlgeschlagen</strong>`;
+              wsStatusEl.className = "status error";
+              log("Alle WebSocket-Verbindungen fehlgeschlagen", true);
+            } else {
+              wsStatusEl.innerHTML = `<strong>✅ ${successCount} von ${wsUrls.length} WebSocket-Verbindungen erfolgreich</strong>`;
+              wsStatusEl.className = "status success";
+              log(
+                `Test abgeschlossen: ${successCount} von ${wsUrls.length} WebSocket-Verbindungen erfolgreich`
+              );
+            }
+          }
+        }
+      });
+
+      // WebRTC-Test
+      testRtcBtn.addEventListener("click", async () => {
+        rtcStatusEl.textContent = "Teste WebRTC-Konfiguration...";
+        rtcStatusEl.className = "status pending";
+
+        log("Teste WebRTC-Konfiguration...");
+
+        try {
+          // 1. Testen, ob MediaDevices API verfügbar ist
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error("MediaDevices API nicht verfügbar");
+          }
+          log("✅ MediaDevices API verfügbar");
+
+          // 2. Testen, ob RTCPeerConnection verfügbar ist
+          if (!window.RTCPeerConnection) {
+            throw new Error("RTCPeerConnection nicht verfügbar");
+          }
+          log("✅ RTCPeerConnection verfügbar");
+
+          // 3. Testen, ob STUN-Server erreichbar sind
+          const stunConfig = {
+            iceServers: [
+              { urls: "stun:stun.l.google.com:19302" },
+              { urls: "stun:stun1.l.google.com:19302" },
+            ],
+          };
+
+          const pc = new RTCPeerConnection(stunConfig);
+          let iceCandidateFound = false;
+
+          pc.onicecandidate = (event) => {
+            if (event.candidate) {
+              log(
+                `ICE-Kandidat gefunden: ${event.candidate.candidate.substr(0, 50)}...`
+              );
+              iceCandidateFound = true;
+            }
+          };
+
+          // Einen Datenkanal erstellen, um ICE-Kandidaten zu generieren
+          pc.createDataChannel("test");
+
+          // Ein Angebot erstellen
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          log("✅ SDP-Angebot erstellt");
+
+          // Warten auf ICE-Kandidaten (max. 5 Sekunden)
+          setTimeout(() => {
+            if (iceCandidateFound) {
+              log("✅ ICE-Kandidaten wurden gefunden - STUN-Server erreichbar");
+              rtcStatusEl.innerHTML =
+                "<strong>✅ WebRTC-Konfiguration erfolgreich</strong><br>STUN-Server erreichbar";
+              rtcStatusEl.className = "status success";
+            } else {
+              log(
+                "❌ Keine ICE-Kandidaten gefunden - STUN-Server möglicherweise nicht erreichbar",
+                true
+              );
+              rtcStatusEl.innerHTML =
+                "<strong>⚠️ WebRTC-Konfiguration unvollständig</strong><br>Keine ICE-Kandidaten gefunden";
+              rtcStatusEl.className = "status error";
+            }
+
+            // Verbindung aufräumen
+            pc.close();
+          }, 5000);
+        } catch (err) {
+          log(`❌ WebRTC-Test fehlgeschlagen: ${err.message}`, true);
+          rtcStatusEl.textContent = `❌ WebRTC-Test fehlgeschlagen: ${err.message}`;
+          rtcStatusEl.className = "status error";
+        }
+      });
+    </script>
+  </body>
+</html>
