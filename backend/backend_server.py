@@ -22,8 +22,16 @@ async def http_handler(path, request_headers):
     logging.info(f"Eingehende Anfrage: {path}")
     logging.info(f"Headers: {request_headers}")
     
+    # Prüfen, ob es sich um ein Headers-Objekt oder ein Request-Objekt handelt
+    if hasattr(request_headers, 'headers'):
+        headers = request_headers.headers
+        request_path = request_headers.path
+    else:
+        headers = request_headers
+        request_path = path
+    
     # HTTP-Route für Ping/Healthcheck
-    if path == "/ping" or path == "/health":
+    if request_path == "/ping" or request_path == "/health":
         logging.info("Health-Check oder Ping-Anfrage")
         return {
             "status": 200,
@@ -37,13 +45,29 @@ async def http_handler(path, request_headers):
         }
     
     # Für WebSocket-Verbindungen
-    if "upgrade" in request_headers and request_headers["upgrade"].lower() == "websocket":
+    upgrade_header = None
+    origin_header = None
+    
+    # Prüfen, ob Upgrade-Header existiert, abhängig vom Typ
+    if hasattr(headers, "get"):
+        upgrade_header = headers.get("upgrade")
+        origin_header = headers.get("origin")
+    elif hasattr(headers, "__getitem__"):
+        try:
+            upgrade_header = headers["upgrade"]
+        except (KeyError, TypeError):
+            pass
+        try:
+            origin_header = headers["origin"]
+        except (KeyError, TypeError):
+            pass
+    
+    if upgrade_header and upgrade_header.lower() == "websocket":
         logging.info("WebSocket-Upgrade-Anfrage erkannt")
         
         # CORS-Header für WebSocket-Handshake
-        if "origin" in request_headers:
-            origin = request_headers["origin"]
-            logging.info(f"Origin Header: {origin}")
+        if origin_header:
+            logging.info(f"Origin Header: {origin_header}")
             return {
                 "status": 101,
                 "headers": [
@@ -57,8 +81,8 @@ async def http_handler(path, request_headers):
         return None
     
     # Standard-Response für andere Pfade
-    if path != "/" and not path.startswith("/models/") and path != "/app.js" and path != "/index.html":
-        logging.info(f"404 für Pfad: {path}")
+    if request_path != "/" and not request_path.startswith("/models/") and request_path != "/app.js" and request_path != "/index.html":
+        logging.info(f"404 für Pfad: {request_path}")
         return {
             "status": 404,
             "headers": [
