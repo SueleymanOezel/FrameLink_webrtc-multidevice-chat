@@ -96,8 +96,7 @@ function connectWebSocket() {
   statusElement.style.backgroundColor = "#eeeeff";
 
   // Korrekte Railway-URL mit Port 8765
-  const url =
-    "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app:8765";
+  const url = "ws://shortline.proxy.rlwy.net:21652";
   debug("WebSocket-URL: " + url);
 
   // Verbindungstimeout

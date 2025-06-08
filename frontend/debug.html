@@ -118,11 +118,9 @@
 
       // WebSocket-URLs für Tests
       const wsUrls = [
-        // Primäre Railway-URL mit Port
-        `wss://${hostname}:${railwayPort}`,
-        // Direkter Railway-Proxy
+        // Railway TCP-Proxy (primär)
         `ws://${railwayProxy}`,
-        // Standard-URLs ohne expliziten Port
+        // Alternativ: HTTPS-Domain ohne Port
         `wss://${hostname}`,
         // URLs mit Pfad
         `wss://${hostname}/ws`,
