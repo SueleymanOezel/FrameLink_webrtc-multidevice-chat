@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
   <head>
-    <title>WebSocket Debug</title>
+    <title>WebSocket Debug für Railway</title>
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -38,10 +38,14 @@
       .url-list {
         margin-bottom: 10px;
       }
+      #customUrl {
+        width: 400px;
+        padding: 5px;
+      }
     </style>
   </head>
   <body>
-    <h1>WebRTC-Verbindungs-Debugging</h1>
+    <h1>Railway WebSocket Verbindungs-Debugging</h1>
 
     <div>
       <h2>1. HTTP-Verbindung testen</h2>
@@ -56,6 +60,14 @@
         <ul id="wsUrls">
           <!-- URLs werden dynamisch hinzugefügt -->
         </ul>
+        <div>
+          <input
+            type="text"
+            id="customUrl"
+            placeholder="Eigene WebSocket-URL eingeben (wss://...)"
+          />
+          <button id="addCustomUrl">Hinzufügen</button>
+        </div>
       </div>
       <div id="wsStatus" class="status">Noch nicht getestet</div>
       <button id="testWs">WebSocket-Verbindung testen</button>
@@ -81,29 +93,71 @@
       const testRtcBtn = document.getElementById("testRtc");
       const clearLogBtn = document.getElementById("clearLog");
       const wsUrlsEl = document.getElementById("wsUrls");
+      const customUrlInput = document.getElementById("customUrl");
+      const addCustomUrlBtn = document.getElementById("addCustomUrl");
 
-      // URLs definieren
-      const baseUrl =
+      // Railway-Domain und mögliche WebSocket-URLs
+      const hostname =
         "framelinkwebrtc-multidevice-chat-production.up.railway.app";
+
+      // Railway Port (8765) aus der Railway-Konfiguration
+      const railwayPort = "8765";
+
+      // Railway Direct Access Port (zufällig zugewiesen von Railway)
+      // Diese URL bekommst du, wenn du auf "Connect" in der Railway-Konsole klickst
+      // Format: shortline.proxy.rlwy.net:PORT
+      const railwayProxy = "shortline.proxy.rlwy.net:21652";
+
+      // HTTP-URLs für Tests
       const httpUrls = [
-        `https://${baseUrl}`,
-        `https://${baseUrl}/ping`,
-        `https://${baseUrl}/health`,
+        `https://${hostname}`,
+        `https://${hostname}/ping`,
+        `https://${hostname}:${railwayPort}`,
+        `http://${railwayProxy}`,
       ];
 
+      // WebSocket-URLs für Tests
       const wsUrls = [
-        `wss://${baseUrl}`, // Standard-URL ohne Port
-        `wss://${baseUrl}/`, // Mit Trailing Slash
-        `wss://${baseUrl}/ws`, // Mit /ws Pfad
-        `wss://${baseUrl}/socket`, // Mit /socket Pfad
-        `wss://${baseUrl}:443`, // Mit explizitem HTTPS-Port
+        // Primäre Railway-URL mit Port
+        `wss://${hostname}:${railwayPort}`,
+        // Direkter Railway-Proxy
+        `ws://${railwayProxy}`,
+        // Standard-URLs ohne expliziten Port
+        `wss://${hostname}`,
+        // URLs mit Pfad
+        `wss://${hostname}/ws`,
+        `wss://${hostname}:${railwayPort}/ws`,
+        // Weitere Port-Varianten
+        `wss://${hostname}:443`,
       ];
 
       // WebSocket-URLs in die Liste eintragen
-      wsUrls.forEach((url) => {
-        const li = document.createElement("li");
-        li.textContent = url;
-        wsUrlsEl.appendChild(li);
+      function updateWsUrlsList() {
+        wsUrlsEl.innerHTML = "";
+        wsUrls.forEach((url) => {
+          const li = document.createElement("li");
+          li.textContent = url;
+          wsUrlsEl.appendChild(li);
+        });
+      }
+
+      updateWsUrlsList();
+
+      // Eigene URL hinzufügen
+      addCustomUrlBtn.addEventListener("click", () => {
+        const url = customUrlInput.value.trim();
+        if (url && (url.startsWith("ws://") || url.startsWith("wss://"))) {
+          if (!wsUrls.includes(url)) {
+            wsUrls.push(url);
+            updateWsUrlsList();
+            log(`Eigene URL hinzugefügt: ${url}`);
+            customUrlInput.value = "";
+          } else {
+            log(`URL existiert bereits in der Liste: ${url}`);
+          }
+        } else {
+          log("Ungültige URL. Muss mit ws:// oder wss:// beginnen", true);
+        }
       });
 
       function log(message, isError = false) {
@@ -134,26 +188,39 @@
 
           try {
             const startTime = Date.now();
-            const response = await fetch(url, {
+
+            const fetchOptions = {
               method: "GET",
               headers: { "Content-Type": "application/json" },
-              mode: "cors",
-            });
+            };
+
+            // Für Railway-Proxy verwenden wir no-cors
+            if (url.includes("proxy.rlwy")) {
+              fetchOptions.mode = "no-cors";
+            }
+
+            const response = await fetch(url, fetchOptions);
             const endTime = Date.now();
 
-            const text = await response.text();
             log(
               `Antwort von ${url}: Status ${response.status} (${endTime - startTime}ms)`
             );
-            log(
-              `Antwort-Inhalt: ${text.substring(0, 100)}${text.length > 100 ? "..." : ""}`
-            );
 
-            if (response.ok) {
-              allFailed = false;
-              httpStatusEl.innerHTML = `<strong>✅ Verbindung erfolgreich zu ${url}</strong><br>Status: ${response.status}<br>Zeit: ${endTime - startTime}ms`;
-              httpStatusEl.className = "status success";
+            try {
+              // Nur für erfolgreiche Antworten, die nicht no-cors sind
+              if (response.ok && !url.includes("proxy.rlwy")) {
+                const text = await response.text();
+                log(
+                  `Antwort-Inhalt: ${text.substring(0, 100)}${text.length > 100 ? "..." : ""}`
+                );
+              }
+            } catch (err) {
+              log(`Konnte Inhalt nicht lesen: ${err.message}`);
             }
+
+            allFailed = false;
+            httpStatusEl.innerHTML = `<strong>✅ Verbindung erfolgreich zu ${url}</strong><br>Status: ${response.status}<br>Zeit: ${endTime - startTime}ms`;
+            httpStatusEl.className = "status success";
           } catch (err) {
             log(`Fehler bei ${url}: ${err.message}`, true);
           }
@@ -356,6 +423,11 @@
           rtcStatusEl.className = "status error";
         }
       });
+
+      // Starte mit HTTP-Test
+      log(
+        'Debug-Seite geladen. Klicke auf "HTTP-Verbindung testen" um zu beginnen.'
+      );
     </script>
   </body>
 </html>

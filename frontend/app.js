@@ -84,7 +84,7 @@ const config = {
 let socket;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 3000; // 3 Sekunden
 
 // 1) WebSocket einrichten mit Retry-Mechanismus
@@ -100,15 +100,30 @@ function connectWebSocket() {
   statusElement.style.color = "blue";
   statusElement.style.backgroundColor = "#eeeeff";
 
-  // Verschiedene URLs ausprobieren
-  const baseUrl = "framelinkwebrtc-multidevice-chat-production.up.railway.app";
+  // Railway-Domain und mögliche WebSocket-URLs
+  const hostname = "framelinkwebrtc-multidevice-chat-production.up.railway.app";
+
+  // Railway Port (8765) aus der Railway-Konfiguration
+  const railwayPort = "8765";
+
+  // Railway Direct Access Port (zufällig zugewiesen von Railway)
+  // Diese URL bekommst du, wenn du auf "Connect" in der Railway-Konsole klickst
+  // Format: shortline.proxy.rlwy.net:PORT
+  const railwayProxy = "shortline.proxy.rlwy.net:21652";
+
   // Erstelle ein Array mit möglichen WebSocket-URLs
   const wsUrls = [
-    `wss://${baseUrl}`, // Standard-URL ohne Port
-    `wss://${baseUrl}/`, // Mit Trailing Slash
-    `wss://${baseUrl}/ws`, // Mit /ws Pfad
-    `wss://${baseUrl}/socket`, // Mit /socket Pfad
-    `wss://${baseUrl}:443`, // Mit explizitem HTTPS-Port
+    // Primäre Railway-URL mit Port
+    `wss://${hostname}:${railwayPort}`,
+    // Direkter Railway-Proxy
+    `wss://${railwayProxy}`,
+    // Standard-URLs ohne expliziten Port
+    `wss://${hostname}`,
+    // URLs mit Pfad
+    `wss://${hostname}/ws`,
+    `wss://${hostname}/socket`,
+    // Weitere Port-Varianten
+    `wss://${hostname}:443`,
   ];
 
   // Index der aktuellen URL
@@ -360,43 +375,25 @@ async function testHttpConnection() {
     debug("Teste HTTP-Verbindung zum Server...");
     const baseUrl =
       "https://framelinkwebrtc-multidevice-chat-production.up.railway.app";
+    const railwayProxy = "http://shortline.proxy.rlwy.net:21652";
 
-    // Teste Ping-Endpoint
-    const pingUrl = `${baseUrl}/ping`;
-    debug(`Versuche HTTP-Verbindung zu: ${pingUrl}`);
+    // Teste Hauptdomains
+    for (const url of [baseUrl, railwayProxy]) {
+      debug(`Versuche HTTP-Verbindung zu: ${url}`);
 
-    const response = await fetch(pingUrl, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-      mode: "cors",
-    });
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          mode: "no-cors", // Versuche no-cors für einfachen Verbindungstest
+        });
 
-    if (response.ok) {
-      const data = await response.json();
-      debug(`✅ HTTP-Verbindung erfolgreich: ${JSON.stringify(data)}`);
-      return true;
-    } else {
-      debug(
-        `❌ HTTP-Verbindung fehlgeschlagen: ${response.status} ${response.statusText}`
-      );
-
-      // Versuche die Root-URL
-      debug(`Versuche HTTP-Verbindung zu: ${baseUrl}`);
-      const rootResponse = await fetch(baseUrl, {
-        method: "GET",
-        mode: "cors",
-      });
-
-      if (rootResponse.ok) {
-        debug(`✅ HTTP-Verbindung zur Root-URL erfolgreich`);
-        return true;
-      } else {
-        debug(
-          `❌ HTTP-Verbindung zur Root-URL fehlgeschlagen: ${rootResponse.status} ${rootResponse.statusText}`
-        );
-        return false;
+        debug(`✅ HTTP-Verbindung zu ${url} erfolgreich`);
+      } catch (error) {
+        debug(`❌ HTTP-Verbindung zu ${url} fehlgeschlagen: ${error.message}`);
       }
     }
+
+    return true; // Wir gehen trotzdem zum WebSocket-Test über
   } catch (error) {
     debug(`❌ HTTP-Verbindungstest fehlgeschlagen: ${error.message}`);
     return false;
@@ -545,22 +542,6 @@ function startFaceDetection() {
   });
 }
 
-// Ping-Funktion, um die Verbindung aktiv zu halten
-function startKeepAlive() {
-  const pingInterval = setInterval(() => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      sendPing();
-    } else {
-      debug("Ping nicht möglich - WebSocket nicht verbunden");
-    }
-  }, 30000); // Alle 30 Sekunden
-
-  // Event-Handler zum Bereinigen des Intervalls hinzufügen
-  window.addEventListener("beforeunload", () => {
-    clearInterval(pingInterval);
-  });
-}
-
 // 7) Klick-Handler: Nur einmal Offer erzeugen + face-Detection starten
 startBtn.addEventListener("click", async () => {
   debug("▶️ Start-Button geklickt");
@@ -601,19 +582,28 @@ startBtn.addEventListener("click", async () => {
   debug("PeerConnection existiert bereits, kein neues Offer gesendet.");
 });
 
+// Ping-Funktion, um die Verbindung aktiv zu halten
+function startKeepAlive() {
+  const pingInterval = setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      sendPing();
+    } else {
+      debug("Ping nicht möglich - WebSocket nicht verbunden");
+    }
+  }, 30000); // Alle 30 Sekunden
+
+  // Event-Handler zum Bereinigen des Intervalls hinzufügen
+  window.addEventListener("beforeunload", () => {
+    clearInterval(pingInterval);
+  });
+}
+
 // Initialisierung der App
 async function initApp() {
   debug("🚀 App wird initialisiert...");
 
   // Zuerst HTTP-Verbindung testen
-  const httpConnected = await testHttpConnection();
-  if (httpConnected) {
-    debug("HTTP-Verbindung zum Server hergestellt, versuche WebSocket...");
-  } else {
-    debug("HTTP-Verbindung fehlgeschlagen, versuche trotzdem WebSocket...");
-    statusElement.textContent =
-      "Server scheint nicht erreichbar zu sein, versuche Verbindung...";
-  }
+  await testHttpConnection();
 
   // WebSocket-Verbindung starten
   connectWebSocket();
