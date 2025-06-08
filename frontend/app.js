@@ -30,8 +30,8 @@ function showStatus(message, color = "black") {
 
 // WebSocket-Verbindung
 function connectWebSocket() {
-  // WICHTIG: Verwende die Railway TCP-Proxy URL
-  const wsUrl = "ws://shortline.proxy.rlwy.net:21652";
+  // WebSocket URL - kann über Umgebungsvariable überschrieben werden
+  const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.glitch.me";
 
   showStatus("Verbinde mit Server...", "blue");
 
