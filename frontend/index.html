@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>FrameLink MVP</title>
+    <style>
+      video {
+        width: 45%;
+        margin: 1%;
+        border: 1px solid #ccc;
+      }
+      /* Canvas über Video legen */
+      #overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+      }
+    </style>
+
+    <!-- face-api.js (Browser-Build) laden -->
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"
+    ></script>
+  </head>
+  <body>
+    <h1>FrameLink WebRTC MVP</h1>
+    <button id="startCall">Starte Anruf</button>
+
+    <!-- Lokales Video & Overlay-Canvas -->
+    <div style="position: relative; display: inline-block">
+      <video id="localVideo" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <!-- Remote-Video -->
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <!-- App-Logik laden -->
+    <script defer src="app.js"></script>
+  </body>
+</html>

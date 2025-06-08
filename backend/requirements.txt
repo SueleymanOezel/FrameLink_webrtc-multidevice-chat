@@ -1,0 +1,5 @@
+# WebSocket‑Server für Signaling
+websockets>=10.4
+
+# .env‑Dateien einlesen (STUN/TURN‑URLs, Credentials)
+python-dotenv>=0.21.0
