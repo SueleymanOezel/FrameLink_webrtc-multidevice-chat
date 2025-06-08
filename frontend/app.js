@@ -27,7 +27,9 @@ const config = {
 };
 
 // 1) WebSocket einrichten
-const socket = new WebSocket("ws://localhost:8765");
+const socket = new WebSocket(
+  "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app:8765"
+);
 socket.onopen = () => {
   console.log("✅ WebSocket verbunden");
   startBtn.disabled = false; // Button aktivieren
