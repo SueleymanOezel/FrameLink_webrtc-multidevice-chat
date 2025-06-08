@@ -1,43 +1,89 @@
 <!doctype html>
-<html lang="de">
+<html>
   <head>
-    <meta charset="utf-8" />
-    <title>FrameLink MVP</title>
-    <style>
-      video {
-        width: 45%;
-        margin: 1%;
-        border: 1px solid #ccc;
-      }
-      /* Canvas über Video legen */
-      #overlay {
-        position: absolute;
-        top: 0;
-        left: 0;
-        pointer-events: none;
-      }
-    </style>
-
-    <!-- face-api.js (Browser-Build) laden -->
-    <script
-      defer
-      src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"
-    ></script>
+    <title>WebSocket Debug</title>
   </head>
   <body>
-    <h1>FrameLink WebRTC MVP</h1>
-    <button id="startCall">Starte Anruf</button>
-
-    <!-- Lokales Video & Overlay-Canvas -->
-    <div style="position: relative; display: inline-block">
-      <video id="localVideo" autoplay muted playsinline></video>
-      <canvas id="overlay"></canvas>
+    <h1>WebSocket Verbindungstest</h1>
+    <div
+      id="status"
+      style="
+        padding: 10px;
+        margin: 10px 0;
+        color: red;
+        background-color: #ffeeee;
+        border: 1px solid red;
+      "
+    >
+      Nicht verbunden
     </div>
+    <button id="connect">Verbindung testen</button>
+    <div
+      id="log"
+      style="
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin-top: 10px;
+        height: 300px;
+        overflow: auto;
+      "
+    ></div>
 
-    <!-- Remote-Video -->
-    <video id="remoteVideo" autoplay playsinline></video>
+    <script>
+      const statusEl = document.getElementById("status");
+      const logEl = document.getElementById("log");
+      const connectBtn = document.getElementById("connect");
 
-    <!-- App-Logik laden -->
-    <script defer src="app.js"></script>
+      function log(message) {
+        const entry = document.createElement("div");
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      connectBtn.addEventListener("click", () => {
+        statusEl.textContent = "Verbindung wird aufgebaut...";
+        statusEl.style.color = "blue";
+        log("Versuche Verbindung aufzubauen...");
+
+        const wsUrl =
+          "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app";
+        log(`WebSocket-URL: ${wsUrl}`);
+
+        const socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          log("✅ WebSocket verbunden");
+          statusEl.textContent = "Verbunden!";
+          statusEl.style.color = "green";
+          statusEl.style.backgroundColor = "#eeffee";
+          statusEl.style.border = "1px solid green";
+
+          // Ping senden
+          socket.send(JSON.stringify({ type: "ping", time: Date.now() }));
+          log("Ping-Nachricht gesendet");
+        };
+
+        socket.onerror = (err) => {
+          log(`❌ WebSocket-Error: ${JSON.stringify(err)}`);
+          statusEl.textContent = "Fehler bei der Verbindung";
+          statusEl.style.color = "red";
+        };
+
+        socket.onclose = (event) => {
+          log(
+            `WebSocket geschlossen: Code ${event.code}, Grund: ${event.reason || "Kein Grund angegeben"}`
+          );
+          statusEl.textContent = `Verbindung getrennt: Code ${event.code}`;
+          statusEl.style.color = "red";
+          statusEl.style.backgroundColor = "#ffeeee";
+          statusEl.style.border = "1px solid red";
+        };
+
+        socket.onmessage = (event) => {
+          log(`Nachricht erhalten: ${event.data}`);
+        };
+      });
+    </script>
   </body>
 </html>
