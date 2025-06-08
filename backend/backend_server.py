@@ -17,30 +17,32 @@ async def handler(websocket, path):
             for conn in connected:
                 if conn is not websocket:
                     await conn.send(msg)
+    except websockets.ConnectionClosed:
+        pass
     finally:
         connected.remove(websocket)
         logging.info(f"Client getrennt: {websocket.remote_address}")
 
-# —— Neu: HTTP-Fallback für GET / —— 
 async def process_request(path, request_headers):
+    # Fängt jeden HTTP-GET an "/" ab und liefert 200 OK
     if path == "/":
-        # 200 OK, Text-Antwort statt 426
         return 200, [("Content-Type", "text/plain")], b"OK"
-    # für alle anderen Pfade → WebSocket-Handshake normal fortsetzen
+    # Alle anderen Pfade: WebSocket-Handshake normal weiterführen
     return None
 
 async def main():
+    # Priorität: SIGNALING_PORT, dann PORT, dann 8765
     port = int(os.getenv("SIGNALING_PORT") or os.getenv("PORT") or 8765)
     async with websockets.serve(
         handler,
         "0.0.0.0",
         port,
-        process_request=process_request,   # hier einbinden!
+        process_request=process_request,   # <-- unbedingt hier einbinden
         ping_interval=20,
         ping_timeout=10
     ):
-        logging.info(f"Starte Signaling-Server auf ws://0.0.0.0:{port}")
-        await asyncio.Future()
+        logging.info(f"Signaling-Server läuft auf ws://0.0.0.0:{port}")
+        await asyncio.Future()  # never exit
 
 if __name__ == "__main__":
     asyncio.run(main())
