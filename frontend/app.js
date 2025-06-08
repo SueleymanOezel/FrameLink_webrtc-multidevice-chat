@@ -2,6 +2,11 @@
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const startBtn = document.getElementById("startCall");
+const statusElement = document.createElement("div");
+statusElement.id = "connectionStatus";
+statusElement.style.color = "red";
+statusElement.textContent = "Nicht verbunden";
+document.body.insertBefore(statusElement, startBtn);
 
 // 0) TensorFlow.js CPU-Backend aktivieren
 (async () => {
@@ -28,13 +33,19 @@ const config = {
 
 // 1) WebSocket einrichten
 const socket = new WebSocket(
-  "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app:8765"
+  "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app"
 );
 socket.onopen = () => {
   console.log("✅ WebSocket verbunden");
   startBtn.disabled = false; // Button aktivieren
+  statusElement.style.color = "green";
+  statusElement.textContent = "Verbunden mit Signaling-Server";
 };
-socket.onerror = (err) => console.error("❌ WebSocket-Error:", err);
+socket.onerror = (err) => {
+  console.error("❌ WebSocket-Error:", err);
+  // Anzeige für Benutzer, dass die Verbindung fehlgeschlagen ist
+  alert("Verbindung zum Server fehlgeschlagen. Bitte später erneut versuchen.");
+};
 socket.onclose = () => {
   console.warn("⚠️ WebSocket geschlossen");
   startBtn.disabled = true; // Button deaktivieren
