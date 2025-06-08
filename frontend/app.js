@@ -101,7 +101,8 @@ function connectWebSocket() {
   statusElement.style.backgroundColor = "#eeeeff";
 
   // Railway-Domain und mögliche WebSocket-URLs
-  const hostname = "framelinkwebrtc-multidevice-chat-production.up.railway.app";
+  const hostname =
+    "framelinkwebrtc-multidevice-chat-production.up.railway.app:8765";
 
   // Railway Port (8765) aus der Railway-Konfiguration
   const railwayPort = "8765";
