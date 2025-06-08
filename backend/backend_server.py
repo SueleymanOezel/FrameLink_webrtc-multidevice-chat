@@ -26,7 +26,7 @@ async def handler(websocket, path=None):
         logging.info(f"Client getrennt: {websocket.remote_address}")
 
 async def main():
-    port = int(os.getenv("SIGNALING_PORT", 8765))
+    port = int(os.getenv("PORT", os.getenv("SIGNALING_PORT", 8765)))
     async with websockets.serve(handler, "0.0.0.0", port):
         logging.info(f"Starte Signaling-Server auf ws://0.0.0.0:{port}")
         await asyncio.Future()  # Laufend halten
