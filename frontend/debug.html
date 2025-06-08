@@ -1,162 +1,96 @@
 <!doctype html>
 <html>
   <head>
-    <title>WebSocket Debug für Railway</title>
+    <title>WebSocket Debug Tool</title>
     <style>
       body {
         font-family: Arial, sans-serif;
         margin: 20px;
+        background-color: #f5f5f5;
       }
       .status {
         padding: 10px;
         margin: 10px 0;
         border: 1px solid #ccc;
+        border-radius: 4px;
       }
       .success {
-        background-color: #eeffee;
-        border-color: green;
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+        color: #155724;
       }
       .error {
-        background-color: #ffeeee;
-        border-color: red;
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+        color: #721c24;
       }
       .pending {
-        background-color: #eeeeff;
-        border-color: blue;
+        background-color: #cce5ff;
+        border-color: #b8daff;
+        color: #004085;
       }
       #log {
         border: 1px solid #ccc;
         padding: 10px;
         margin-top: 10px;
-        height: 300px;
+        height: 400px;
         overflow: auto;
+        background-color: white;
+        font-family: monospace;
+        font-size: 12px;
       }
       button {
         padding: 8px 16px;
         margin: 5px;
+        cursor: pointer;
       }
-      .url-list {
-        margin-bottom: 10px;
-      }
-      #customUrl {
-        width: 400px;
-        padding: 5px;
+      .test-section {
+        background-color: white;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
     </style>
   </head>
   <body>
-    <h1>Railway WebSocket Verbindungs-Debugging</h1>
+    <h1>WebSocket Connection Debugger</h1>
 
-    <div>
-      <h2>1. HTTP-Verbindung testen</h2>
-      <div id="httpStatus" class="status">Noch nicht getestet</div>
-      <button id="testHttp">HTTP-Verbindung testen</button>
+    <div class="test-section">
+      <h2>Railway WebSocket Test</h2>
+      <p><strong>TCP Proxy URL:</strong> ws://shortline.proxy.rlwy.net:21652</p>
+      <div id="wsStatus" class="status">Nicht getestet</div>
+      <button id="testWs">WebSocket testen</button>
     </div>
 
-    <div>
-      <h2>2. WebSocket-Verbindung testen</h2>
-      <div class="url-list">
-        <strong>URLs zum Testen:</strong>
-        <ul id="wsUrls">
-          <!-- URLs werden dynamisch hinzugefügt -->
-        </ul>
-        <div>
-          <input
-            type="text"
-            id="customUrl"
-            placeholder="Eigene WebSocket-URL eingeben (wss://...)"
-          />
-          <button id="addCustomUrl">Hinzufügen</button>
-        </div>
-      </div>
-      <div id="wsStatus" class="status">Noch nicht getestet</div>
-      <button id="testWs">WebSocket-Verbindung testen</button>
+    <div class="test-section">
+      <h2>Kamera Test</h2>
+      <div id="cameraStatus" class="status">Nicht getestet</div>
+      <button id="testCamera">Kamera testen</button>
+      <video
+        id="testVideo"
+        style="width: 200px; display: none"
+        autoplay
+        muted
+      ></video>
     </div>
 
-    <div>
-      <h2>3. WebRTC-Konfiguration testen</h2>
-      <div id="rtcStatus" class="status">Noch nicht getestet</div>
-      <button id="testRtc">WebRTC-Konfiguration testen</button>
+    <div class="test-section">
+      <h2>WebRTC Test</h2>
+      <div id="rtcStatus" class="status">Nicht getestet</div>
+      <button id="testRtc">WebRTC testen</button>
     </div>
 
-    <h2>Log</h2>
+    <h2>Debug Log</h2>
     <button id="clearLog">Log löschen</button>
     <div id="log"></div>
 
     <script>
-      const httpStatusEl = document.getElementById("httpStatus");
       const wsStatusEl = document.getElementById("wsStatus");
+      const cameraStatusEl = document.getElementById("cameraStatus");
       const rtcStatusEl = document.getElementById("rtcStatus");
       const logEl = document.getElementById("log");
-      const testHttpBtn = document.getElementById("testHttp");
-      const testWsBtn = document.getElementById("testWs");
-      const testRtcBtn = document.getElementById("testRtc");
-      const clearLogBtn = document.getElementById("clearLog");
-      const wsUrlsEl = document.getElementById("wsUrls");
-      const customUrlInput = document.getElementById("customUrl");
-      const addCustomUrlBtn = document.getElementById("addCustomUrl");
-
-      // Railway-Domain und mögliche WebSocket-URLs
-      const hostname =
-        "framelinkwebrtc-multidevice-chat-production.up.railway.app";
-
-      // Railway Port (8765) aus der Railway-Konfiguration
-      const railwayPort = "8765";
-
-      // Railway Direct Access Port (zufällig zugewiesen von Railway)
-      // Diese URL bekommst du, wenn du auf "Connect" in der Railway-Konsole klickst
-      // Format: shortline.proxy.rlwy.net:PORT
-      const railwayProxy = "shortline.proxy.rlwy.net:21652";
-
-      // HTTP-URLs für Tests
-      const httpUrls = [
-        `https://${hostname}`,
-        `https://${hostname}/ping`,
-        `https://${hostname}:${railwayPort}`,
-        `http://${railwayProxy}`,
-      ];
-
-      // WebSocket-URLs für Tests
-      const wsUrls = [
-        // Railway TCP-Proxy (primär)
-        `ws://${railwayProxy}`,
-        // Alternativ: HTTPS-Domain ohne Port
-        `wss://${hostname}`,
-        // URLs mit Pfad
-        `wss://${hostname}/ws`,
-        `wss://${hostname}:${railwayPort}/ws`,
-        // Weitere Port-Varianten
-        `wss://${hostname}:443`,
-      ];
-
-      // WebSocket-URLs in die Liste eintragen
-      function updateWsUrlsList() {
-        wsUrlsEl.innerHTML = "";
-        wsUrls.forEach((url) => {
-          const li = document.createElement("li");
-          li.textContent = url;
-          wsUrlsEl.appendChild(li);
-        });
-      }
-
-      updateWsUrlsList();
-
-      // Eigene URL hinzufügen
-      addCustomUrlBtn.addEventListener("click", () => {
-        const url = customUrlInput.value.trim();
-        if (url && (url.startsWith("ws://") || url.startsWith("wss://"))) {
-          if (!wsUrls.includes(url)) {
-            wsUrls.push(url);
-            updateWsUrlsList();
-            log(`Eigene URL hinzugefügt: ${url}`);
-            customUrlInput.value = "";
-          } else {
-            log(`URL existiert bereits in der Liste: ${url}`);
-          }
-        } else {
-          log("Ungültige URL. Muss mit ws:// oder wss:// beginnen", true);
-        }
-      });
+      const testVideo = document.getElementById("testVideo");
 
       function log(message, isError = false) {
         const entry = document.createElement("div");
@@ -168,264 +102,145 @@
         logEl.scrollTop = logEl.scrollHeight;
       }
 
-      clearLogBtn.addEventListener("click", () => {
-        logEl.innerHTML = "";
-        log("Log gelöscht");
-      });
-
-      // HTTP-Test
-      testHttpBtn.addEventListener("click", async () => {
-        httpStatusEl.textContent = "Verbindung wird getestet...";
-        httpStatusEl.className = "status pending";
-
-        log("Teste HTTP-Verbindung...");
-        let allFailed = true;
-
-        for (const url of httpUrls) {
-          log(`Versuche Verbindung zu: ${url}`);
-
-          try {
-            const startTime = Date.now();
-
-            const fetchOptions = {
-              method: "GET",
-              headers: { "Content-Type": "application/json" },
-            };
-
-            // Für Railway-Proxy verwenden wir no-cors
-            if (url.includes("proxy.rlwy")) {
-              fetchOptions.mode = "no-cors";
-            }
-
-            const response = await fetch(url, fetchOptions);
-            const endTime = Date.now();
-
-            log(
-              `Antwort von ${url}: Status ${response.status} (${endTime - startTime}ms)`
-            );
-
-            try {
-              // Nur für erfolgreiche Antworten, die nicht no-cors sind
-              if (response.ok && !url.includes("proxy.rlwy")) {
-                const text = await response.text();
-                log(
-                  `Antwort-Inhalt: ${text.substring(0, 100)}${text.length > 100 ? "..." : ""}`
-                );
-              }
-            } catch (err) {
-              log(`Konnte Inhalt nicht lesen: ${err.message}`);
-            }
-
-            allFailed = false;
-            httpStatusEl.innerHTML = `<strong>✅ Verbindung erfolgreich zu ${url}</strong><br>Status: ${response.status}<br>Zeit: ${endTime - startTime}ms`;
-            httpStatusEl.className = "status success";
-          } catch (err) {
-            log(`Fehler bei ${url}: ${err.message}`, true);
-          }
-        }
-
-        if (allFailed) {
-          httpStatusEl.textContent = `❌ Alle HTTP-Verbindungen fehlgeschlagen`;
-          httpStatusEl.className = "status error";
-          log("Alle HTTP-Verbindungen fehlgeschlagen", true);
-        }
-      });
-
-      // WebSocket-Test
-      testWsBtn.addEventListener("click", () => {
-        wsStatusEl.textContent = "Verbindung wird getestet...";
+      // WebSocket Test
+      document.getElementById("testWs").addEventListener("click", () => {
+        wsStatusEl.textContent = "Teste Verbindung...";
         wsStatusEl.className = "status pending";
 
-        log("Versuche WebSocket-Verbindung aufzubauen...");
-        let successCount = 0;
-        let activeTests = wsUrls.length;
+        const wsUrl = "ws://shortline.proxy.rlwy.net:21652";
+        log(`Versuche Verbindung zu ${wsUrl}`);
 
-        wsUrls.forEach((wsUrl, index) => {
-          log(`Teste WebSocket-URL (${index + 1}): ${wsUrl}`);
+        try {
+          const socket = new WebSocket(wsUrl);
 
-          // Timeout für den Verbindungsversuch
-          const connectionTimeout = setTimeout(() => {
-            log(`Timeout beim Verbinden zu ${wsUrl}`, true);
-            activeTests--;
-            checkAllDone();
-          }, 10000);
+          socket.onopen = () => {
+            log("✅ WebSocket verbunden!");
+            wsStatusEl.textContent = "Verbindung erfolgreich!";
+            wsStatusEl.className = "status success";
+
+            // Test-Nachricht senden
+            const testMsg = JSON.stringify({ type: "test", time: Date.now() });
+            socket.send(testMsg);
+            log("Test-Nachricht gesendet");
+
+            // Nach 3 Sekunden schließen
+            setTimeout(() => {
+              socket.close();
+              log("WebSocket geschlossen");
+            }, 3000);
+          };
+
+          socket.onerror = (error) => {
+            log("❌ WebSocket Fehler", true);
+            wsStatusEl.textContent = "Verbindungsfehler!";
+            wsStatusEl.className = "status error";
+          };
+
+          socket.onclose = (event) => {
+            log(`WebSocket geschlossen: Code ${event.code}`);
+          };
+
+          socket.onmessage = (event) => {
+            log(`Nachricht empfangen: ${event.data}`);
+          };
+        } catch (error) {
+          log(`Fehler: ${error.message}`, true);
+          wsStatusEl.textContent = `Fehler: ${error.message}`;
+          wsStatusEl.className = "status error";
+        }
+      });
+
+      // Kamera Test
+      document
+        .getElementById("testCamera")
+        .addEventListener("click", async () => {
+          cameraStatusEl.textContent = "Teste Kamera...";
+          cameraStatusEl.className = "status pending";
 
           try {
-            const socket = new WebSocket(wsUrl);
+            const stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: true,
+            });
 
-            socket.onopen = () => {
-              clearTimeout(connectionTimeout);
-              log(`✅ WebSocket verbunden zu ${wsUrl}`);
-              successCount++;
+            log("✅ Kamera-Zugriff erfolgreich");
+            testVideo.srcObject = stream;
+            testVideo.style.display = "block";
 
-              // Ping senden
-              socket.send(JSON.stringify({ type: "ping", time: Date.now() }));
-              log(`Ping-Nachricht an ${wsUrl} gesendet`);
+            cameraStatusEl.textContent = "Kamera funktioniert!";
+            cameraStatusEl.className = "status success";
 
-              wsStatusEl.innerHTML = `<strong>✅ Verbunden mit ${wsUrl}</strong><br>Erfolgreich: ${successCount}/${wsUrls.length}`;
-              wsStatusEl.className = "status success";
-
-              // Nach 5 Sekunden schließen
-              setTimeout(() => {
-                socket.close();
-                log(`WebSocket zu ${wsUrl} planmäßig geschlossen`);
-                activeTests--;
-                checkAllDone();
-              }, 5000);
-            };
-
-            socket.onerror = (err) => {
-              clearTimeout(connectionTimeout);
-              log(`❌ WebSocket-Error bei ${wsUrl}`, true);
-
-              if (successCount === 0) {
-                wsStatusEl.innerHTML = `<strong>❌ Fehler bei Verbindung zu ${wsUrl}</strong>`;
-                wsStatusEl.className = "status error";
-              }
-
-              activeTests--;
-              checkAllDone();
-            };
-
-            socket.onclose = (event) => {
-              clearTimeout(connectionTimeout);
-              const reasons = {
-                1000: "Normal Closure",
-                1001: "Going Away",
-                1002: "Protocol Error",
-                1003: "Unsupported Data",
-                1005: "No Status Received",
-                1006: "Abnormal Closure",
-                1007: "Invalid frame payload data",
-                1008: "Policy Violation",
-                1009: "Message too big",
-                1010: "Missing Extension",
-                1011: "Internal Error",
-                1012: "Service Restart",
-                1013: "Try Again Later",
-                1014: "Bad Gateway",
-                1015: "TLS Handshake",
-              };
-
-              const reason = reasons[event.code] || "Unknown reason";
-              log(
-                `WebSocket zu ${wsUrl} geschlossen: Code ${event.code} (${reason}), Grund: ${event.reason || "Kein Grund angegeben"}`
-              );
-
-              activeTests--;
-              checkAllDone();
-            };
-
-            socket.onmessage = (event) => {
-              log(`Nachricht von ${wsUrl} erhalten: ${event.data}`);
-            };
-          } catch (err) {
-            clearTimeout(connectionTimeout);
-            log(
-              `Fehler beim Erstellen der WebSocket-Verbindung zu ${wsUrl}: ${err.message}`,
-              true
-            );
-            activeTests--;
-            checkAllDone();
+            // Nach 5 Sekunden stoppen
+            setTimeout(() => {
+              stream.getTracks().forEach((track) => track.stop());
+              testVideo.style.display = "none";
+              log("Kamera gestoppt");
+            }, 5000);
+          } catch (error) {
+            log(`❌ Kamera-Fehler: ${error.message}`, true);
+            cameraStatusEl.textContent = `Fehler: ${error.message}`;
+            cameraStatusEl.className = "status error";
           }
         });
 
-        function checkAllDone() {
-          if (activeTests === 0) {
-            if (successCount === 0) {
-              wsStatusEl.innerHTML = `<strong>❌ Alle WebSocket-Verbindungen fehlgeschlagen</strong>`;
-              wsStatusEl.className = "status error";
-              log("Alle WebSocket-Verbindungen fehlgeschlagen", true);
-            } else {
-              wsStatusEl.innerHTML = `<strong>✅ ${successCount} von ${wsUrls.length} WebSocket-Verbindungen erfolgreich</strong>`;
-              wsStatusEl.className = "status success";
-              log(
-                `Test abgeschlossen: ${successCount} von ${wsUrls.length} WebSocket-Verbindungen erfolgreich`
-              );
-            }
-          }
-        }
-      });
-
-      // WebRTC-Test
-      testRtcBtn.addEventListener("click", async () => {
-        rtcStatusEl.textContent = "Teste WebRTC-Konfiguration...";
+      // WebRTC Test
+      document.getElementById("testRtc").addEventListener("click", async () => {
+        rtcStatusEl.textContent = "Teste WebRTC...";
         rtcStatusEl.className = "status pending";
 
-        log("Teste WebRTC-Konfiguration...");
-
         try {
-          // 1. Testen, ob MediaDevices API verfügbar ist
-          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            throw new Error("MediaDevices API nicht verfügbar");
-          }
-          log("✅ MediaDevices API verfügbar");
+          const pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          });
 
-          // 2. Testen, ob RTCPeerConnection verfügbar ist
-          if (!window.RTCPeerConnection) {
-            throw new Error("RTCPeerConnection nicht verfügbar");
-          }
-          log("✅ RTCPeerConnection verfügbar");
+          log("RTCPeerConnection erstellt");
 
-          // 3. Testen, ob STUN-Server erreichbar sind
-          const stunConfig = {
-            iceServers: [
-              { urls: "stun:stun.l.google.com:19302" },
-              { urls: "stun:stun1.l.google.com:19302" },
-            ],
-          };
+          // Data Channel für Test
+          const dc = pc.createDataChannel("test");
 
-          const pc = new RTCPeerConnection(stunConfig);
-          let iceCandidateFound = false;
-
+          // ICE Gathering Test
+          let candidateFound = false;
           pc.onicecandidate = (event) => {
             if (event.candidate) {
+              candidateFound = true;
               log(
-                `ICE-Kandidat gefunden: ${event.candidate.candidate.substr(0, 50)}...`
+                `ICE Candidate gefunden: ${event.candidate.candidate.substr(0, 50)}...`
               );
-              iceCandidateFound = true;
             }
           };
 
-          // Einen Datenkanal erstellen, um ICE-Kandidaten zu generieren
-          pc.createDataChannel("test");
-
-          // Ein Angebot erstellen
+          // Offer erstellen
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          log("✅ SDP-Angebot erstellt");
+          log("Offer erstellt");
 
-          // Warten auf ICE-Kandidaten (max. 5 Sekunden)
+          // Auf ICE Gathering warten
           setTimeout(() => {
-            if (iceCandidateFound) {
-              log("✅ ICE-Kandidaten wurden gefunden - STUN-Server erreichbar");
-              rtcStatusEl.innerHTML =
-                "<strong>✅ WebRTC-Konfiguration erfolgreich</strong><br>STUN-Server erreichbar";
+            if (candidateFound) {
+              rtcStatusEl.textContent = "WebRTC funktioniert!";
               rtcStatusEl.className = "status success";
             } else {
-              log(
-                "❌ Keine ICE-Kandidaten gefunden - STUN-Server möglicherweise nicht erreichbar",
-                true
-              );
-              rtcStatusEl.innerHTML =
-                "<strong>⚠️ WebRTC-Konfiguration unvollständig</strong><br>Keine ICE-Kandidaten gefunden";
+              rtcStatusEl.textContent = "Keine ICE Candidates gefunden";
               rtcStatusEl.className = "status error";
             }
-
-            // Verbindung aufräumen
             pc.close();
-          }, 5000);
-        } catch (err) {
-          log(`❌ WebRTC-Test fehlgeschlagen: ${err.message}`, true);
-          rtcStatusEl.textContent = `❌ WebRTC-Test fehlgeschlagen: ${err.message}`;
+          }, 3000);
+        } catch (error) {
+          log(`❌ WebRTC-Fehler: ${error.message}`, true);
+          rtcStatusEl.textContent = `Fehler: ${error.message}`;
           rtcStatusEl.className = "status error";
         }
       });
 
-      // Starte mit HTTP-Test
-      log(
-        'Debug-Seite geladen. Klicke auf "HTTP-Verbindung testen" um zu beginnen.'
-      );
+      // Log löschen
+      document.getElementById("clearLog").addEventListener("click", () => {
+        logEl.innerHTML = "";
+        log("Log gelöscht");
+      });
+
+      // Initial Log
+      log("Debug-Tool bereit");
+      log("Railway TCP Proxy: ws://shortline.proxy.rlwy.net:21652");
     </script>
   </body>
 </html>
