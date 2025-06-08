@@ -1,89 +1,103 @@
 <!doctype html>
 <html>
   <head>
-    <title>WebSocket Debug</title>
-  </head>
-  <body>
-    <h1>WebSocket Verbindungstest</h1>
-    <div
-      id="status"
-      style="
-        padding: 10px;
-        margin: 10px 0;
-        color: red;
-        background-color: #ffeeee;
-        border: 1px solid red;
-      "
-    >
-      Nicht verbunden
-    </div>
-    <button id="connect">Verbindung testen</button>
-    <div
-      id="log"
-      style="
-        border: 1px solid #ccc;
-        padding: 10px;
-        margin-top: 10px;
-        height: 300px;
-        overflow: auto;
-      "
-    ></div>
-
-    <script>
-      const statusEl = document.getElementById("status");
-      const logEl = document.getElementById("log");
-      const connectBtn = document.getElementById("connect");
-
-      function log(message) {
-        const entry = document.createElement("div");
-        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-        logEl.appendChild(entry);
-        logEl.scrollTop = logEl.scrollHeight;
+    <title>Simple WebRTC Video Chat</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: #f5f5f5;
       }
 
-      connectBtn.addEventListener("click", () => {
-        statusEl.textContent = "Verbindung wird aufgebaut...";
-        statusEl.style.color = "blue";
-        log("Versuche Verbindung aufzubauen...");
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
 
-        const wsUrl =
-          "wss://framelinkwebrtc-multidevice-chat-production.up.railway.app";
-        log(`WebSocket-URL: ${wsUrl}`);
+      h1 {
+        text-align: center;
+        color: #333;
+      }
 
-        const socket = new WebSocket(wsUrl);
+      .videos {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin: 20px 0;
+      }
 
-        socket.onopen = () => {
-          log("✅ WebSocket verbunden");
-          statusEl.textContent = "Verbunden!";
-          statusEl.style.color = "green";
-          statusEl.style.backgroundColor = "#eeffee";
-          statusEl.style.border = "1px solid green";
+      .video-container {
+        background-color: white;
+        padding: 10px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
 
-          // Ping senden
-          socket.send(JSON.stringify({ type: "ping", time: Date.now() }));
-          log("Ping-Nachricht gesendet");
-        };
+      video {
+        width: 400px;
+        height: 300px;
+        background-color: #000;
+        border-radius: 4px;
+      }
 
-        socket.onerror = (err) => {
-          log(`❌ WebSocket-Error: ${JSON.stringify(err)}`);
-          statusEl.textContent = "Fehler bei der Verbindung";
-          statusEl.style.color = "red";
-        };
+      .controls {
+        text-align: center;
+        margin: 20px 0;
+      }
 
-        socket.onclose = (event) => {
-          log(
-            `WebSocket geschlossen: Code ${event.code}, Grund: ${event.reason || "Kein Grund angegeben"}`
-          );
-          statusEl.textContent = `Verbindung getrennt: Code ${event.code}`;
-          statusEl.style.color = "red";
-          statusEl.style.backgroundColor = "#ffeeee";
-          statusEl.style.border = "1px solid red";
-        };
+      button {
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        font-size: 16px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
 
-        socket.onmessage = (event) => {
-          log(`Nachricht erhalten: ${event.data}`);
-        };
-      });
-    </script>
+      button:hover {
+        background-color: #45a049;
+      }
+
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      #status {
+        text-align: center;
+        padding: 10px;
+        margin: 10px auto;
+        max-width: 600px;
+        background-color: #e0e0e0;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Simple WebRTC Video Chat</h1>
+
+      <div id="status">Initialisiere...</div>
+
+      <div class="videos">
+        <div class="video-container">
+          <h3>Lokales Video</h3>
+          <video id="localVideo" autoplay muted></video>
+        </div>
+
+        <div class="video-container">
+          <h3>Remote Video</h3>
+          <video id="remoteVideo" autoplay></video>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="startCall" disabled>Anruf starten</button>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
   </body>
 </html>

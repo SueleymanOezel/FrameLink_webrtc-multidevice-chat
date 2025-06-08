@@ -2,47 +2,40 @@ import asyncio
 import os
 import logging
 import websockets
-from dotenv import load_dotenv
+import json
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
+# Alle verbundenen Clients speichern
 connected = set()
 
 async def handler(websocket, path):
+    # Client zur Liste hinzufügen
     connected.add(websocket)
     logging.info(f"Client verbunden: {websocket.remote_address}")
+    
     try:
-        async for msg in websocket:
-            for conn in connected:
-                if conn is not websocket:
-                    await conn.send(msg)
+        # Nachrichten empfangen und an alle anderen weiterleiten
+        async for message in websocket:
+            # An alle ANDEREN Clients senden
+            for client in connected:
+                if client != websocket and client.open:
+                    await client.send(message)
     except websockets.ConnectionClosed:
         pass
     finally:
+        # Client aus Liste entfernen
         connected.remove(websocket)
         logging.info(f"Client getrennt: {websocket.remote_address}")
 
-async def process_request(path, request_headers):
-    # Fängt jeden HTTP-GET an "/" ab und liefert 200 OK
-    if path == "/":
-        return 200, [("Content-Type", "text/plain")], b"OK"
-    # Alle anderen Pfade: WebSocket-Handshake normal weiterführen
-    return None
-
 async def main():
-    # Priorität: SIGNALING_PORT, dann PORT, dann 8765
-    port = int(os.getenv("SIGNALING_PORT") or os.getenv("PORT") or 8765)
-    async with websockets.serve(
-        handler,
-        "0.0.0.0",
-        port,
-        process_request=process_request,   # <-- unbedingt hier einbinden
-        ping_interval=20,
-        ping_timeout=10
-    ):
-        logging.info(f"Signaling-Server läuft auf ws://0.0.0.0:{port}")
-        await asyncio.Future()  # never exit
+    # Railway setzt PORT automatisch
+    port = int(os.getenv("PORT", 8765))
+    
+    # Einfacher WebSocket-Server OHNE Health Check Handler
+    async with websockets.serve(handler, "0.0.0.0", port):
+        logging.info(f"Signaling-Server läuft auf Port {port}")
+        await asyncio.Future()  # Läuft für immer
 
 if __name__ == "__main__":
     asyncio.run(main())
