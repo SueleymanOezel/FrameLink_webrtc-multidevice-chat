@@ -4,7 +4,7 @@
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "app.js", "use": "@vercel/static" },
     { "src": "debug.html", "use": "@vercel/static" },
-    { "src": "framelink-addon.js", "use": "@vercel/static" },
+    { "src": "simple-face-detection.js", "use": "@vercel/static" },
     { "src": "models/*", "use": "@vercel/static" }
   ],
   "routes": [
