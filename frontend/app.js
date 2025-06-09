@@ -99,15 +99,30 @@ async function initMedia() {
 function createPeerConnection() {
   peerConnection = new RTCPeerConnection({
     iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      // Öffentlicher TURN Server (kann unzuverlässig sein)
       {
-        urls: "turn:openrelay.metered.ca:80",
-        username: "openrelayproject",
-        credential: "openrelayproject",
+        urls: "stun:stun.relay.metered.ca:80",
       },
-    ],
+      {
+        urls: "turn:global.relay.metered.ca:80",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:443",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+    ]
   });
 
   // Lokale Tracks hinzufügen
@@ -134,11 +149,55 @@ function createPeerConnection() {
     ) {
       showStatus("Verbindung verloren - bitte neu starten", "orange");
 
-      // Optional: Automatischer Reconnect
       setTimeout(() => {
         if (peerConnection.connectionState === "disconnected") {
           showStatus("Versuche neu zu verbinden...", "blue");
-          // Hier könntest du eine Reconnect-Logik implementieren
+        }
+      }, 3000);
+    }
+  };
+
+  // ICE Kandidaten senden
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      // Debug: Zeige welcher Typ verwendet wird
+      console.log("ICE Candidate Typ:", event.candidate.type, "Protokoll:", event.candidate.protocol);
+      
+      socket.send(JSON.stringify({
+        type: "ice",
+        candidate: event.candidate
+      }));
+    }
+  };
+}
+
+  // Lokale Tracks hinzufügen
+  localStream.getTracks().forEach((track) => {
+    peerConnection.addTrack(track, localStream);
+  });
+
+  // Remote Stream empfangen
+  peerConnection.ontrack = (event) => {
+    console.log("Remote track empfangen:", event.streams);
+    remoteVideo.srcObject = event.streams[0];
+    showStatus("Verbindung hergestellt!", "green");
+  };
+
+  // Verbindungsstatus überwachen
+  peerConnection.onconnectionstatechange = () => {
+    console.log("Verbindungsstatus:", peerConnection.connectionState);
+    showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
+
+    // Bei Verbindungsverlust neu verbinden
+    if (
+      peerConnection.connectionState === "failed" ||
+      peerConnection.connectionState === "disconnected"
+    ) {
+      showStatus("Verbindung verloren - bitte neu starten", "orange");
+
+      setTimeout(() => {
+        if (peerConnection.connectionState === "disconnected") {
+          showStatus("Versuche neu zu verbinden...", "blue");
         }
       }, 3000);
     }
