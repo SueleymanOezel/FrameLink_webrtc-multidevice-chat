@@ -122,7 +122,7 @@ function createPeerConnection() {
         username: "18dd3dc42100ea8643228a68",
         credential: "9u70h1tuJ9YA0ONB",
       },
-    ]
+    ],
   });
 
   // Lokale Tracks hinzufügen
@@ -161,51 +161,13 @@ function createPeerConnection() {
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
       // Debug: Zeige welcher Typ verwendet wird
-      console.log("ICE Candidate Typ:", event.candidate.type, "Protokoll:", event.candidate.protocol);
-      
-      socket.send(JSON.stringify({
-        type: "ice",
-        candidate: event.candidate
-      }));
-    }
-  };
-}
+      console.log(
+        "ICE Candidate Typ:",
+        event.candidate.type,
+        "Protokoll:",
+        event.candidate.protocol
+      );
 
-  // Lokale Tracks hinzufügen
-  localStream.getTracks().forEach((track) => {
-    peerConnection.addTrack(track, localStream);
-  });
-
-  // Remote Stream empfangen
-  peerConnection.ontrack = (event) => {
-    console.log("Remote track empfangen:", event.streams);
-    remoteVideo.srcObject = event.streams[0];
-    showStatus("Verbindung hergestellt!", "green");
-  };
-
-  // Verbindungsstatus überwachen
-  peerConnection.onconnectionstatechange = () => {
-    console.log("Verbindungsstatus:", peerConnection.connectionState);
-    showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
-
-    // Bei Verbindungsverlust neu verbinden
-    if (
-      peerConnection.connectionState === "failed" ||
-      peerConnection.connectionState === "disconnected"
-    ) {
-      showStatus("Verbindung verloren - bitte neu starten", "orange");
-
-      setTimeout(() => {
-        if (peerConnection.connectionState === "disconnected") {
-          showStatus("Versuche neu zu verbinden...", "blue");
-        }
-      }, 3000);
-    }
-  };
-
-  // ICE Candidates
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate && socket.readyState === WebSocket.OPEN) {
       socket.send(
         JSON.stringify({
           type: "ice",
@@ -215,6 +177,50 @@ function createPeerConnection() {
     }
   };
 }
+
+// Lokale Tracks hinzufügen
+localStream.getTracks().forEach((track) => {
+  peerConnection.addTrack(track, localStream);
+});
+
+// Remote Stream empfangen
+peerConnection.ontrack = (event) => {
+  console.log("Remote track empfangen:", event.streams);
+  remoteVideo.srcObject = event.streams[0];
+  showStatus("Verbindung hergestellt!", "green");
+};
+
+// Verbindungsstatus überwachen
+peerConnection.onconnectionstatechange = () => {
+  console.log("Verbindungsstatus:", peerConnection.connectionState);
+  showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
+
+  // Bei Verbindungsverlust neu verbinden
+  if (
+    peerConnection.connectionState === "failed" ||
+    peerConnection.connectionState === "disconnected"
+  ) {
+    showStatus("Verbindung verloren - bitte neu starten", "orange");
+
+    setTimeout(() => {
+      if (peerConnection.connectionState === "disconnected") {
+        showStatus("Versuche neu zu verbinden...", "blue");
+      }
+    }, 3000);
+  }
+};
+
+// ICE Candidates
+peerConnection.onicecandidate = (event) => {
+  if (event.candidate && socket.readyState === WebSocket.OPEN) {
+    socket.send(
+      JSON.stringify({
+        type: "ice",
+        candidate: event.candidate,
+      })
+    );
+  }
+};
 
 // Anruf starten
 async function startCall() {
