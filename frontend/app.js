@@ -205,11 +205,6 @@ async function addLocalStreamToPeerConnection() {
   }
 }
 
-// Lokale Tracks hinzufügen
-localStream.getTracks().forEach((track) => {
-  peerConnection.addTrack(track, localStream);
-});
-
 // Remote Stream empfangen
 peerConnection.ontrack = (event) => {
   console.log("Remote track empfangen:", event.streams);
