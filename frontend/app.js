@@ -126,6 +126,22 @@ function createPeerConnection() {
   peerConnection.onconnectionstatechange = () => {
     console.log("Verbindungsstatus:", peerConnection.connectionState);
     showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
+
+    // Bei Verbindungsverlust neu verbinden
+    if (
+      peerConnection.connectionState === "failed" ||
+      peerConnection.connectionState === "disconnected"
+    ) {
+      showStatus("Verbindung verloren - bitte neu starten", "orange");
+
+      // Optional: Automatischer Reconnect
+      setTimeout(() => {
+        if (peerConnection.connectionState === "disconnected") {
+          showStatus("Versuche neu zu verbinden...", "blue");
+          // Hier könntest du eine Reconnect-Logik implementieren
+        }
+      }, 3000);
+    }
   };
 
   // ICE Candidates
