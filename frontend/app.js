@@ -126,9 +126,13 @@ function createPeerConnection() {
   });
 
   // Lokale Tracks hinzufügen
-  localStream.getTracks().forEach((track) => {
-    peerConnection.addTrack(track, localStream);
-  });
+  if (localStream) {
+    localStream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, localStream);
+    });
+  } else {
+    console.error("localStream ist nicht verfügbar!");
+  }
 
   // Remote Stream empfangen
   peerConnection.ontrack = (event) => {
