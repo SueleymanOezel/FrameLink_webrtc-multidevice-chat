@@ -55,14 +55,26 @@ function connectWebSocket() {
   };
 
   socket.onmessage = async (event) => {
-    const message = JSON.parse(event.data);
+    try {
+      // Konvertiere Blob zu Text falls nötig
+      let data;
+      if (event.data instanceof Blob) {
+        data = await event.data.text();
+      } else {
+        data = event.data;
+      }
 
-    if (message.type === "offer") {
-      await handleOffer(message);
-    } else if (message.type === "answer") {
-      await handleAnswer(message);
-    } else if (message.type === "ice") {
-      await handleIceCandidate(message);
+      const message = JSON.parse(data);
+
+      if (message.type === "offer") {
+        await handleOffer(message);
+      } else if (message.type === "answer") {
+        await handleAnswer(message);
+      } else if (message.type === "ice") {
+        await handleIceCandidate(message);
+      }
+    } catch (error) {
+      console.error("Fehler beim Verarbeiten der Nachricht:", error);
     }
   };
 }
@@ -86,7 +98,16 @@ async function initMedia() {
 // PeerConnection erstellen
 function createPeerConnection() {
   peerConnection = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      // Öffentlicher TURN Server (kann unzuverlässig sein)
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ],
   });
 
   // Lokale Tracks hinzufügen
@@ -96,8 +117,15 @@ function createPeerConnection() {
 
   // Remote Stream empfangen
   peerConnection.ontrack = (event) => {
+    console.log("Remote track empfangen:", event.streams);
     remoteVideo.srcObject = event.streams[0];
     showStatus("Verbindung hergestellt!", "green");
+  };
+
+  // Verbindungsstatus überwachen
+  peerConnection.onconnectionstatechange = () => {
+    console.log("Verbindungsstatus:", peerConnection.connectionState);
+    showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
   };
 
   // ICE Candidates
@@ -165,8 +193,15 @@ async function handleAnswer(message) {
 
 // ICE Candidate verarbeiten
 async function handleIceCandidate(message) {
-  if (peerConnection) {
-    await peerConnection.addIceCandidate(message.candidate);
+  try {
+    if (peerConnection && message.candidate) {
+      await peerConnection.addIceCandidate(
+        new RTCIceCandidate(message.candidate)
+      );
+      console.log("ICE Candidate hinzugefügt");
+    }
+  } catch (error) {
+    console.error("Fehler beim Hinzufügen von ICE Candidate:", error);
   }
 }
 
