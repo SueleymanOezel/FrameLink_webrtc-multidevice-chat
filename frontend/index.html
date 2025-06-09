@@ -98,6 +98,58 @@
       </div>
     </div>
 
+    <!-- Steuer-Buttons -->
+    <div
+      id="controls"
+      style="
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        margin-top: 10px;
+      "
+    >
+      <button id="toggleCameraBtn" class="toggle-btn active">Kamera aus</button>
+      <button id="toggleMicBtn" class="toggle-btn active">Mikro aus</button>
+      <button id="endCallBtn" class="end-btn">Anruf beenden</button>
+    </div>
+    <style>
+      #controls .end-btn {
+        background-color: #e53935;
+        color: white;
+      }
+      #controls .end-btn:hover {
+        background-color: #b71c1c;
+      }
+      #controls .toggle-btn {
+        background-color: white;
+        color: #333;
+        border: 1px solid #ccc;
+      }
+      #controls .toggle-btn.active {
+        background-color: #ccc;
+        color: #333;
+      }
+    </style>
+    <script>
+      // Toggle button state logic (example)
+      document
+        .getElementById("toggleCameraBtn")
+        .addEventListener("click", function () {
+          this.classList.toggle("active");
+          this.textContent = this.classList.contains("active")
+            ? "Kamera aus"
+            : "Kamera an";
+        });
+      document
+        .getElementById("toggleMicBtn")
+        .addEventListener("click", function () {
+          this.classList.toggle("active");
+          this.textContent = this.classList.contains("active")
+            ? "Mikro aus"
+            : "Mikro an";
+        });
+    </script>
+
     <script src="app.js"></script>
   </body>
 </html>

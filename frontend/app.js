@@ -3,6 +3,9 @@ const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
 const startBtn = document.getElementById("startCall");
 const statusDiv = document.getElementById("status") || createStatusDiv();
+const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+const toggleMicBtn = document.getElementById("toggleMicBtn");
+const endCallBtn = document.getElementById("endCallBtn");
 
 // Status-Anzeige erstellen falls nicht vorhanden
 function createStatusDiv() {
@@ -20,6 +23,8 @@ function createStatusDiv() {
 let localStream;
 let peerConnection;
 let socket;
+let cameraEnabled = true;
+let micEnabled = true;
 
 // Status anzeigen
 function showStatus(message, color = "black") {
@@ -244,8 +249,50 @@ async function addLocalStreamToPeerConnection() {
 //   }
 // };
 
+// Kamera an/aus
+function toggleCamera() {
+  if (!localStream) return;
+  cameraEnabled = !cameraEnabled;
+  localStream.getVideoTracks().forEach((track) => {
+    track.enabled = cameraEnabled;
+  });
+  toggleCameraBtn.textContent = cameraEnabled ? "Kamera aus" : "Kamera an";
+  showStatus(`Kamera ${cameraEnabled ? "aktiv" : "deaktiviert"}`, "blue");
+}
+
+// Mikrofon an/aus
+function toggleMicrophone() {
+  if (!localStream) return;
+  micEnabled = !micEnabled;
+  localStream.getAudioTracks().forEach((track) => {
+    track.enabled = micEnabled;
+  });
+  toggleMicBtn.textContent = micEnabled ? "Mikro aus" : "Mikro an";
+  showStatus(`Mikrofon ${micEnabled ? "aktiv" : "deaktiviert"}`, "blue");
+}
+
+// Anruf beenden
+function endCall() {
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+  remoteVideo.srcObject = null;
+  showStatus("Anruf beendet", "red");
+  // Buttons zurücksetzen
+  startBtn.disabled = false;
+  toggleCameraBtn.disabled = true;
+  toggleMicBtn.disabled = true;
+  endCallBtn.disabled = true;
+}
+
 // Anruf starten
 async function startCall() {
+  // Buttons aktiv setzen
+  toggleCameraBtn.disabled = false;
+  toggleMicBtn.disabled = false;
+  endCallBtn.disabled = false;
+
   if (!localStream) {
     if (!(await initMedia())) return;
   }
@@ -315,4 +362,8 @@ startBtn.addEventListener("click", startCall);
 window.addEventListener("load", () => {
   connectWebSocket();
   initMedia(); // Kamera direkt initialisieren
+  // Button-Events
+  toggleCameraBtn.addEventListener("click", toggleCamera);
+  toggleMicBtn.addEventListener("click", toggleMicrophone);
+  endCallBtn.addEventListener("click", endCall);
 });
