@@ -206,43 +206,43 @@ async function addLocalStreamToPeerConnection() {
 }
 
 // Remote Stream empfangen
-peerConnection.ontrack = (event) => {
-  console.log("Remote track empfangen:", event.streams);
-  remoteVideo.srcObject = event.streams[0];
-  showStatus("Verbindung hergestellt!", "green");
-};
+// peerConnection.ontrack = (event) => {
+//   console.log("Remote track empfangen:", event.streams);
+//   remoteVideo.srcObject = event.streams[0];
+//   showStatus("Verbindung hergestellt!", "green");
+// };
 
 // Verbindungsstatus überwachen
-peerConnection.onconnectionstatechange = () => {
-  console.log("Verbindungsstatus:", peerConnection.connectionState);
-  showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
+// peerConnection.onconnectionstatechange = () => {
+//   console.log("Verbindungsstatus:", peerConnection.connectionState);
+//   showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
 
-  // Bei Verbindungsverlust neu verbinden
-  if (
-    peerConnection.connectionState === "failed" ||
-    peerConnection.connectionState === "disconnected"
-  ) {
-    showStatus("Verbindung verloren - bitte neu starten", "orange");
+//   // Bei Verbindungsverlust neu verbinden
+//   if (
+//     peerConnection.connectionState === "failed" ||
+//     peerConnection.connectionState === "disconnected"
+//   ) {
+//     showStatus("Verbindung verloren - bitte neu starten", "orange");
 
-    setTimeout(() => {
-      if (peerConnection.connectionState === "disconnected") {
-        showStatus("Versuche neu zu verbinden...", "blue");
-      }
-    }, 3000);
-  }
-};
+//     setTimeout(() => {
+//       if (peerConnection.connectionState === "disconnected") {
+//         showStatus("Versuche neu zu verbinden...", "blue");
+//       }
+//     }, 3000);
+//   }
+// };
 
 // ICE Candidates
-peerConnection.onicecandidate = (event) => {
-  if (event.candidate && socket.readyState === WebSocket.OPEN) {
-    socket.send(
-      JSON.stringify({
-        type: "ice",
-        candidate: event.candidate,
-      })
-    );
-  }
-};
+// peerConnection.onicecandidate = (event) => {
+//   if (event.candidate && socket.readyState === WebSocket.OPEN) {
+//     socket.send(
+//       JSON.stringify({
+//         type: "ice",
+//         candidate: event.candidate,
+//       })
+//     );
+//   }
+// };
 
 // Anruf starten
 async function startCall() {
