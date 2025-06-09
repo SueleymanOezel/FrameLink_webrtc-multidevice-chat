@@ -126,12 +126,12 @@ function createPeerConnection() {
   });
 
   // Lokale Tracks hinzufügen
-  if (localStream) {
+  if (localStream && localStream.getTracks) {
     localStream.getTracks().forEach((track) => {
       peerConnection.addTrack(track, localStream);
     });
   } else {
-    console.error("localStream ist nicht verfügbar!");
+    console.warn("localStream noch nicht verfügbar - wird später hinzugefügt");
   }
 
   // Remote Stream empfangen
@@ -180,6 +180,29 @@ function createPeerConnection() {
       );
     }
   };
+}
+
+// Tracks nachträglich hinzufügen
+async function addLocalStreamToPeerConnection() {
+  if (!localStream) {
+    const success = await initMedia();
+    if (!success) return;
+  }
+
+  if (peerConnection && localStream) {
+    localStream.getTracks().forEach((track) => {
+      // Prüfe ob Track bereits hinzugefügt wurde
+      const senders = peerConnection.getSenders();
+      const trackAlreadyAdded = senders.some(
+        (sender) => sender.track === track
+      );
+
+      if (!trackAlreadyAdded) {
+        peerConnection.addTrack(track, localStream);
+        console.log("Track nachträglich hinzugefügt:", track.kind);
+      }
+    });
+  }
 }
 
 // Lokale Tracks hinzufügen
@@ -251,13 +274,13 @@ async function startCall() {
 
 // Offer verarbeiten
 async function handleOffer(message) {
-  if (!localStream) {
-    if (!(await initMedia())) return;
-  }
-
   createPeerConnection();
 
   await peerConnection.setRemoteDescription(message.offer);
+
+  // Stelle sicher dass localStream verfügbar ist
+  await addLocalStreamToPeerConnection();
+
   const answer = await peerConnection.createAnswer();
   await peerConnection.setLocalDescription(answer);
 
