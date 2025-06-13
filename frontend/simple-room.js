@@ -257,6 +257,44 @@ window.addEventListener("load", () => {
           }
 
           // REGEL 3: Multi-Device Room Logic
+
+          // SPECIAL CASE: Wenn niemand Kamera hat und externer Call kommt
+          if (
+            !hasCamera &&
+            !callActiveWithExternal &&
+            (msg.type === "offer" || msg.type === "answer")
+          ) {
+            console.log(
+              "🎯 Externer Call ohne Kamera-Owner - Auto-assign Kamera"
+            );
+            hasCamera = true;
+
+            if (window.localStream) {
+              window.localStream
+                .getVideoTracks()
+                .forEach((t) => (t.enabled = true));
+            }
+
+            document.getElementById("camera-status").textContent =
+              "📹 KAMERA AUTO-AKTIV";
+            document.getElementById("camera-status").style.color = "orange";
+            if (window.localVideo)
+              window.localVideo.style.border = "4px solid #ff9800";
+
+            // Informiere andere Geräte
+            socket.send(
+              JSON.stringify({
+                type: "camera-request",
+                roomId: roomId,
+                deviceId: deviceId,
+              })
+            );
+          }
+
+          // NEUE REGEL: Prozessiere WebRTC wenn:
+          // - Ich habe Kamera ODER
+          // - Noch kein Call aktiv ODER
+          // - Ich bin Solo im Room
           const shouldProcessWebRTC =
             hasCamera || !callActiveWithExternal || roomDeviceCount === 1;
 
@@ -377,6 +415,12 @@ window.addEventListener("load", () => {
   // VEREINFACHTE Call-Takeover Logic
   function initiateCallTakeover() {
     console.log("🔥 Call-Takeover gestartet");
+    console.log(
+      "- window.peerConnection:",
+      window.peerConnection ? "EXISTS" : "NULL"
+    );
+    console.log("- callActiveWithExternal:", callActiveWithExternal);
+    console.log("- hasCamera:", hasCamera);
 
     if (!callActiveWithExternal) {
       console.log(
@@ -398,49 +442,123 @@ window.addEventListener("load", () => {
 
     updateCallStatus("🔄 Übernehme Call...");
 
+    // Prüfe alle verfügbaren PeerConnection Referenzen
+    let peerConn = window.peerConnection || window.pc || window.connection;
+
+    if (!peerConn) {
+      console.log("🔍 Suche nach PeerConnection in globalen Objekten...");
+      // Zusätzliche Suche nach PeerConnection
+      for (let key in window) {
+        if (
+          window[key] &&
+          typeof window[key] === "object" &&
+          window[key].constructor &&
+          window[key].constructor.name === "RTCPeerConnection"
+        ) {
+          console.log("✅ PeerConnection gefunden als:", key);
+          peerConn = window[key];
+          break;
+        }
+      }
+    }
+
+    if (!peerConn) {
+      console.log("❌ Keine PeerConnection gefunden - erstelle neue");
+      // Fallback: Versuche Call zu restarten
+      restartCallWithNewCamera();
+      return;
+    }
+
+    console.log("✅ PeerConnection gefunden, starte Takeover...");
+    console.log("- Connection State:", peerConn.connectionState);
+
     // Erstelle neues Offer mit aktueller Kamera
     setTimeout(() => {
-      if (window.peerConnection && hasCamera) {
+      if (peerConn && hasCamera) {
         console.log("🔧 Erstelle Takeover-Offer...");
 
         // Stelle sicher dass lokaler Stream in PeerConnection ist
         if (window.localStream) {
+          console.log(
+            "📹 Aktuelle Video Tracks:",
+            window.localStream.getVideoTracks().map((t) => ({
+              id: t.id,
+              enabled: t.enabled,
+              readyState: t.readyState,
+            }))
+          );
+
           // Entferne alte Tracks
-          const senders = window.peerConnection.getSenders();
+          const senders = peerConn.getSenders();
+          console.log("🗑️ Entferne", senders.length, "alte Senders");
           senders.forEach((sender) => {
             if (sender.track) {
-              window.peerConnection.removeTrack(sender);
+              peerConn.removeTrack(sender);
             }
           });
 
           // Füge neue Tracks hinzu
           window.localStream.getTracks().forEach((track) => {
-            console.log("➕ Füge Track hinzu:", track.kind, track.enabled);
-            window.peerConnection.addTrack(track, window.localStream);
+            console.log(
+              "➕ Füge Track hinzu:",
+              track.kind,
+              track.enabled,
+              track.id
+            );
+            peerConn.addTrack(track, window.localStream);
           });
         }
 
         // Neues Offer erstellen
-        window.peerConnection
-          .createOffer()
+        peerConn
+          .createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+          })
           .then((offer) => {
-            window.peerConnection.setLocalDescription(offer);
+            console.log("📤 Setze Local Description für Takeover");
+            return peerConn.setLocalDescription(offer);
+          })
+          .then(() => {
+            console.log(
+              "📤 Sende Takeover-Offer:",
+              peerConn.localDescription.type
+            );
             socket.send(
               JSON.stringify({
                 type: "offer",
-                offer: offer,
+                offer: peerConn.localDescription,
+                takeover: true,
               })
             );
-            console.log("📤 Takeover-Offer gesendet");
             updateCallStatus("📞 Call-Übernahme aktiv");
           })
           .catch((err) => {
             console.log("❌ Takeover-Offer Fehler:", err);
+            updateCallStatus("❌ Call-Übernahme fehlgeschlagen");
           });
       } else {
         console.log("❌ Kein PeerConnection oder keine Kamera für Takeover");
+        console.log("- peerConn:", !!peerConn);
+        console.log("- hasCamera:", hasCamera);
       }
     }, 300);
+  }
+
+  // Fallback: Call mit neuer Kamera restarten
+  function restartCallWithNewCamera() {
+    console.log("🔄 Restart Call mit neuer Kamera");
+    updateCallStatus("🔄 Starte Call neu...");
+
+    // Versuche Call-Restart
+    if (window.startCall) {
+      setTimeout(() => {
+        window.startCall();
+        updateCallStatus("📞 Call neu gestartet");
+      }, 500);
+    } else {
+      updateCallStatus("❌ Call-Restart nicht möglich");
+    }
   }
 
   // Call an anderes Gerät übergeben
