@@ -1,14 +1,16 @@
-// simple-room.js - Einfaches Room System für Multi-Device
+// simple-room.js - Einfaches Room System für Multi-Device + Video-Chat
 
 window.addEventListener("load", () => {
   // Room ID aus URL oder generieren
   const params = new URLSearchParams(window.location.search);
   let roomId = params.get("room");
+  let isLocalRoom = false; // Flag für lokales Multi-Device Management
 
   if (!roomId) {
     // Neuer Room
     roomId = "room-" + Math.random().toString(36).substr(2, 8);
     window.history.replaceState({}, "", "?room=" + roomId);
+    isLocalRoom = true; // Das ist ein lokaler Room für eigene Geräte
 
     // Info anzeigen
     const info = document.createElement("div");
@@ -17,18 +19,21 @@ window.addEventListener("load", () => {
     info.innerHTML = `
       <h2>📹 Multi-Device Room erstellt!</h2>
       <p><strong>Room ID:</strong> ${roomId}</p>
-      <p>Öffne diese URL auf allen Geräten:</p>
+      <p>Öffne diese URL auf allen deinen Geräten:</p>
       <input value="${window.location.href}" readonly style="width:100%; padding:10px;" onclick="this.select()">
       <div style="margin-top:20px; padding:15px; background:white; border-radius:4px;">
         <h3>So funktioniert's:</h3>
         <ol>
-          <li>Öffne diese URL auf allen deinen Geräten (PC, Laptop, Tablet)</li>
-          <li>Klicke auf "Room beitreten" auf JEDEM Gerät</li>
-          <li>Nutze die Kamera-Switch Buttons zum Wechseln</li>
+          <li>📱 <strong>Multi-Device:</strong> Öffne diese URL auf allen deinen Geräten und klicke "Room beitreten"</li>
+          <li>👥 <strong>Video-Chat:</strong> Teile diese URL mit anderen Personen für Video-Calls</li>
+          <li>🎥 <strong>Kamera-Switch:</strong> Nutze "Kamera übernehmen" zum Wechseln zwischen Geräten</li>
         </ol>
       </div>
     `;
     document.body.insertBefore(info, document.body.firstChild);
+  } else {
+    // Existierender Room - könnte lokaler Multi-Device oder Video-Chat sein
+    isLocalRoom = false; // Standardmäßig als Video-Chat behandeln
   }
 
   // Room Controls hinzufügen
@@ -38,9 +43,20 @@ window.addEventListener("load", () => {
   controls.innerHTML = `
     <h3>🏠 Room: ${roomId}</h3>
     <p>Device: <code id="device-id">${Math.random().toString(36).substr(2, 6)}</code></p>
-    <button id="join-room" style="padding:15px 30px; margin:10px; background:#2196F3; color:white; border:none; border-radius:4px; font-size:18px; cursor:pointer;">
-      🚪 Room beitreten
-    </button>
+    
+    <div style="display:flex; justify-content:center; gap:15px; margin:10px 0;">
+      <button id="join-room" style="padding:15px 25px; background:#2196F3; color:white; border:none; border-radius:4px; font-size:16px; cursor:pointer;">
+        🚪 Multi-Device beitreten
+      </button>
+      <div style="border-left:2px solid #ddd; margin:0 10px;"></div>
+      <div>
+        <p style="margin:5px 0; font-size:14px;"><strong>Video-Chat mit anderen:</strong></p>
+        <button id="external-call" onclick="document.getElementById('startCall').click()" style="padding:15px 25px; background:#4caf50; color:white; border:none; border-radius:4px; font-size:16px; cursor:pointer;">
+          📞 Video-Call starten
+        </button>
+      </div>
+    </div>
+    
     <div id="room-controls" style="display:none; margin-top:20px;">
       <button id="take-camera" style="padding:10px 20px; margin:5px; background:#4caf50; color:white; border:none; border-radius:4px;">
         📹 Kamera übernehmen
@@ -50,14 +66,14 @@ window.addEventListener("load", () => {
   `;
   document.body.insertBefore(controls, document.querySelector(".container"));
 
-  // Original Start-Button verstecken
-  document.getElementById("startCall").style.display = "none";
+  // Start-Button für Video-Calls mit anderen Personen weiterhin verfügbar lassen
+  // document.getElementById("startCall").style.display = "none";
 
   const deviceId = document.getElementById("device-id").textContent;
   let inRoom = false;
   let hasCamera = false;
 
-  // Room beitreten
+  // Room beitreten (für Multi-Device Management)
   document.getElementById("join-room").addEventListener("click", () => {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       alert("Noch nicht mit Server verbunden! Bitte warten...");
@@ -74,10 +90,12 @@ window.addEventListener("load", () => {
     );
 
     document.getElementById("join-room").disabled = true;
-    document.getElementById("join-room").textContent = "✅ Im Room";
+    document.getElementById("join-room").textContent =
+      "✅ Im Multi-Device Room";
     document.getElementById("room-controls").style.display = "block";
 
     inRoom = true;
+    isLocalRoom = true; // Jetzt definitiv lokaler Room
     setupRoomHandlers();
   });
 
@@ -105,8 +123,8 @@ window.addEventListener("load", () => {
       try {
         const msg = JSON.parse(data);
 
-        // Room-spezifische Messages
-        if (msg.roomId === roomId) {
+        // **WICHTIG:** Room-spezifische Messages nur verarbeiten wenn wir im lokalen Room sind
+        if (msg.roomId === roomId && inRoom && isLocalRoom) {
           switch (msg.type) {
             case "camera-request":
               // Jemand will die Kamera
@@ -135,23 +153,27 @@ window.addEventListener("load", () => {
                 document.getElementById("camera-status").style.color = "gray";
                 localVideo.style.border = "2px solid #ccc";
               }
-              break;
+              return; // Diese Message NICHT weiterleiten
 
             case "room-update":
               console.log(`Room Update: ${msg.devices.length} Geräte im Room`);
-              break;
+              return; // Diese Message NICHT weiterleiten
           }
-
-          // Diese Messages NICHT als WebRTC weiterleiten
-          return;
         }
 
-        // Nur WebRTC Messages von Geräten im gleichen Room verarbeiten
+        // **WebRTC Messages:** Immer verarbeiten für Video-Chat Funktionalität
         if (
-          msg.roomId === roomId &&
-          (msg.type === "offer" || msg.type === "answer" || msg.type === "ice")
+          msg.type === "offer" ||
+          msg.type === "answer" ||
+          msg.type === "ice"
         ) {
-          // Original handler für WebRTC
+          // Aber NICHT die lokalen Room-WebRTC Messages
+          if (!(msg.roomId === roomId && inRoom && isLocalRoom)) {
+            // Original handler für externe WebRTC Calls
+            if (originalOnMessage) originalOnMessage.call(socket, event);
+          }
+        } else {
+          // Alle anderen Messages normal weiterleiten
           if (originalOnMessage) originalOnMessage.call(socket, event);
         }
       } catch (e) {
@@ -160,10 +182,31 @@ window.addEventListener("load", () => {
       }
     };
 
-    // Initial: Kamera aus
-    if (localStream) {
+    // Initial: Kamera aus (nur wenn im lokalen Room)
+    if (localStream && isLocalRoom) {
       localStream.getVideoTracks().forEach((t) => (t.enabled = false));
     }
-    document.getElementById("camera-status").textContent = "⏸️ Kamera inaktiv";
+    if (isLocalRoom) {
+      document.getElementById("camera-status").textContent =
+        "⏸️ Kamera inaktiv";
+    }
+  }
+
+  // Wenn jemand direkt einen Video-Call startet ohne Room beizutreten
+  const originalStartCall = window.startCall;
+  if (originalStartCall) {
+    window.startCall = function () {
+      // Bei externem Video-Call: Room-System deaktivieren
+      if (inRoom && isLocalRoom) {
+        console.log(
+          "Video-Call gestartet - lokales Room-System temporär deaktiviert"
+        );
+        // Kamera wieder aktivieren für Video-Call
+        if (localStream) {
+          localStream.getVideoTracks().forEach((t) => (t.enabled = true));
+        }
+      }
+      return originalStartCall.apply(this, arguments);
+    };
   }
 });
