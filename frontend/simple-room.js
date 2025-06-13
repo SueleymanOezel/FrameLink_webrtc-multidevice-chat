@@ -65,6 +65,12 @@ window.addEventListener("load", () => {
   let hasCamera = false;
   let externalCallActive = false;
   let hasActivePeerConnection = false;
+  let roomDeviceCount = 1; // Track wie viele Geräte im Room sind
+
+  // Hilfsfunktion: Prüfe ob andere Geräte im Room sind
+  function hasOtherDevicesInRoom() {
+    return roomDeviceCount > 1;
+  }
 
   // Room beitreten
   document.getElementById("join-room").addEventListener("click", () => {
@@ -133,30 +139,38 @@ window.addEventListener("load", () => {
 
             case "room-update":
               console.log(`Room: ${msg.devices?.length || 0} Geräte verbunden`);
+              roomDeviceCount = msg.devices?.length || 1; // Update device count
               return;
           }
         }
 
-        // WebRTC Messages: Nur verarbeiten wenn dieses Gerät aktive Kamera hat
+        // WebRTC Messages: Intelligente Filterung
         if (
           msg.type === "offer" ||
           msg.type === "answer" ||
           msg.type === "ice"
         ) {
-          // Wenn ich im Room bin, nur WebRTC verarbeiten wenn ich die aktive Kamera habe
+          // Wenn ich im Room bin, nur WebRTC verarbeiten wenn:
           if (inRoom && isLocalRoom) {
-            if (hasCamera || !externalCallActive) {
-              // Ich habe die Kamera oder noch kein Call aktiv -> verarbeiten
+            const shouldProcessWebRTC =
+              hasCamera || // Ich habe die aktive Kamera
+              !externalCallActive || // Noch kein Call aktiv (Call-Start)
+              !hasOtherDevicesInRoom(); // Ich bin allein im Room
+
+            if (shouldProcessWebRTC) {
+              // WebRTC verarbeiten
               if (originalOnMessage) originalOnMessage.call(socket, event);
 
-              // Call Status synchronisieren
+              // Call Status synchronisieren bei Offer/Answer
               if (msg.type === "offer" || msg.type === "answer") {
                 externalCallActive = true;
                 broadcastCallStatus();
               }
             } else {
-              // Ich habe keine Kamera und Call ist aktiv -> ignorieren
-              console.log("WebRTC Message ignoriert - keine aktive Kamera");
+              // WebRTC Message ignorieren - anderes Gerät führt Call
+              console.log(
+                `WebRTC Message ignoriert - ${hasCamera ? "habe Kamera" : "keine Kamera"}, Call: ${externalCallActive}`
+              );
             }
           } else {
             // Nicht im Room -> normale Verarbeitung
@@ -345,21 +359,31 @@ window.addEventListener("load", () => {
   const originalStartCall = window.startCall;
   if (originalStartCall) {
     window.startCall = function () {
+      console.log(
+        `🚀 Video-Call gestartet (Room: ${inRoom}, Devices: ${roomDeviceCount}, Camera: ${hasCamera})`
+      );
+
       // Call Status setzen
       externalCallActive = true;
       hasActivePeerConnection = true;
 
-      console.log("🚀 Video-Call gestartet");
       updateCallStatus(`📹 Call gestartet von ${deviceId}`);
 
-      // Nur wenn ich die Kamera habe oder im Room bin
-      if (hasCamera || !inRoom) {
-        broadcastCallStatus();
-        return originalStartCall.apply(this, arguments);
-      } else {
-        console.log("⚠️ Call gestartet aber keine aktive Kamera");
-        updateCallStatus("⚠️ Call ohne aktive Kamera");
+      // Wenn ich im Room bin aber noch keine Kamera habe -> automatisch übernehmen
+      if (inRoom && !hasCamera && !hasOtherDevicesInRoom()) {
+        console.log("📹 Auto-aktiviere Kamera für Solo-Device Call");
+        hasCamera = true;
+        if (localStream) {
+          localStream.getVideoTracks().forEach((t) => (t.enabled = true));
+        }
+        document.getElementById("camera-status").textContent =
+          "📹 KAMERA AKTIV (Auto)";
+        document.getElementById("camera-status").style.color = "green";
+        localVideo.style.border = "4px solid #4caf50";
       }
+
+      broadcastCallStatus();
+      return originalStartCall.apply(this, arguments);
     };
   }
 
