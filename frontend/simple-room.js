@@ -1,4 +1,4 @@
-// simple-room.js - Multi-Device mit korrekter Call-Logik
+// simple-room.js - Multi-Device mit korrektem Video-Stream Handover
 
 window.addEventListener("load", () => {
   // Room ID aus URL oder generieren
@@ -55,6 +55,7 @@ window.addEventListener("load", () => {
       <p id="camera-status" style="margin:8px 0; font-weight:bold; font-size:14px;">⏸️ Kamera inaktiv</p>
       <div id="call-info" style="margin:10px 0; padding:8px; background:#f8f9fa; border-radius:4px; display:none; font-size:13px;">
         <div id="call-status">📞 Kein aktiver Call</div>
+        <div id="handover-status" style="margin-top:5px; font-size:12px; color:#666;"></div>
       </div>
     </div>
   `;
@@ -64,8 +65,10 @@ window.addEventListener("load", () => {
   let inRoom = false;
   let hasCamera = false;
   let externalCallActive = false;
-  let isCallMaster = false; // Nur Master-Device führt externe Calls
+  let isCallMaster = false;
   let roomDeviceCount = 1;
+  let handoverInProgress = false;
+  let externalPeerId = null; // ID des externen Call-Partners
 
   // Hilfsfunktion: Prüfe ob andere Geräte im Room sind
   function hasOtherDevicesInRoom() {
@@ -112,6 +115,7 @@ window.addEventListener("load", () => {
   // Kamera übernehmen
   document.getElementById("take-camera").addEventListener("click", () => {
     if (!inRoom) return;
+    console.log("🔄 Kamera-Übernahme angefordert");
     socket.send(
       JSON.stringify({
         type: "camera-request",
@@ -193,6 +197,14 @@ window.addEventListener("load", () => {
               }
               return;
 
+            case "call-handover-init":
+              handleCallHandoverInit(msg);
+              return;
+
+            case "call-handover-complete":
+              handleCallHandoverComplete(msg);
+              return;
+
             case "room-update":
               console.log(`Room: ${msg.devices?.length || 0} Geräte verbunden`);
               roomDeviceCount = msg.devices?.length || 1;
@@ -200,29 +212,54 @@ window.addEventListener("load", () => {
           }
         }
 
-        // WebRTC Messages: Nur Master verarbeitet externe Calls
+        // WebRTC Messages: Master-Logic + Handover-Unterstützung
         if (
           msg.type === "offer" ||
           msg.type === "answer" ||
           msg.type === "ice"
         ) {
           if (inRoom && isLocalRoom && hasOtherDevicesInRoom()) {
-            // Multi-Device Mode: Nur Master verarbeitet externe WebRTC
-            if (isCallMaster || !externalCallActive) {
+            // Multi-Device Mode: Komplexe Logic
+
+            if (handoverInProgress && msg.type === "offer") {
+              console.log("🔄 Handover-Offer empfangen");
+              if (hasCamera) {
+                // Ich bin das neue Master-Device, akzeptiere das Offer
+                updateHandoverStatus("📥 Empfange Call-Übernahme...");
+                if (originalOnMessage) originalOnMessage.call(socket, event);
+
+                // Merke externe Peer ID
+                if (msg.from) externalPeerId = msg.from;
+              }
+              return;
+            }
+
+            if (isCallMaster || (!externalCallActive && hasCamera)) {
               console.log(`✅ WebRTC (Master): ${msg.type}`);
               if (originalOnMessage) originalOnMessage.call(socket, event);
 
               if (msg.type === "offer" || msg.type === "answer") {
                 externalCallActive = true;
+                if (msg.from) externalPeerId = msg.from;
                 broadcastCallStatus();
               }
+            } else if (!isCallMaster && externalCallActive) {
+              // Slave-Device während externem Call: Ignoriere normale WebRTC
+              console.log(`❌ WebRTC ignoriert (Slave): ${msg.type}`);
             } else {
-              console.log(`❌ WebRTC ignoriert (nicht Master): ${msg.type}`);
+              // Fallback: Normal verarbeiten
+              console.log(`✅ WebRTC (Fallback): ${msg.type}`);
+              if (originalOnMessage) originalOnMessage.call(socket, event);
             }
           } else {
             // Solo-Device oder kein Room: Normal verarbeiten
-            console.log(`✅ WebRTC (Solo/Normal): ${msg.type}`);
+            console.log(`✅ WebRTC (Solo): ${msg.type}`);
             if (originalOnMessage) originalOnMessage.call(socket, event);
+
+            if (msg.type === "offer" || msg.type === "answer") {
+              externalCallActive = true;
+              if (msg.from) externalPeerId = msg.from;
+            }
           }
         } else {
           // Andere Messages normal weiterleiten
@@ -254,15 +291,17 @@ window.addEventListener("load", () => {
 
       document.getElementById("camera-status").textContent = "📹 KAMERA AKTIV";
       document.getElementById("camera-status").style.color = "green";
-      localVideo.style.border = "4px solid #4caf50";
+      if (window.localVideo)
+        window.localVideo.style.border = "4px solid #4caf50";
 
-      // Wenn externer Call aktiv und ich war nicht Master -> Übernehme Call
+      // Wenn externer Call aktiv und ich war nicht Master -> Starte Handover
       if (externalCallActive && !wasCallMaster) {
-        console.log("🔄 Übernehme Master-Role für externen Call");
-        takeoverExternalCall();
+        console.log("🔄 Initiiere Call-Handover");
+        initiateCallHandover();
       }
     } else {
       // Jemand anders bekommt die Kamera
+      const previousHasCamera = hasCamera;
       hasCamera = false;
 
       if (localStream) {
@@ -272,57 +311,166 @@ window.addEventListener("load", () => {
       document.getElementById("camera-status").textContent =
         `⏸️ ${msg.deviceId} hat Kamera`;
       document.getElementById("camera-status").style.color = "gray";
-      localVideo.style.border = "2px solid #ccc";
+      if (window.localVideo) window.localVideo.style.border = "2px solid #ccc";
 
-      // Wenn ich war Master und externer Call aktiv -> Übergebe Call
-      if (externalCallActive && wasCallMaster) {
-        console.log("🔄 Übergebe Master-Role an anderes Gerät");
-        handoverExternalCall(msg.deviceId);
+      // Wenn ich war Master und externer Call aktiv -> Bereite Übergabe vor
+      if (externalCallActive && previousHasCamera && wasCallMaster) {
+        console.log("🔄 Bereite Call-Übergabe vor");
+        prepareCallHandover(msg.deviceId);
       }
     }
 
     broadcastCallStatus();
   }
 
-  // Externen Call übernehmen
-  function takeoverExternalCall() {
+  // Call-Handover initiieren (neues Master-Device)
+  function initiateCallHandover() {
+    if (!externalCallActive || !externalPeerId) {
+      console.log("❌ Kein aktiver externer Call für Handover");
+      return;
+    }
+
+    handoverInProgress = true;
     isCallMaster = true;
     updateCallStatus("🔄 Übernehme externen Call");
+    updateHandoverStatus("🔄 Initiiere Call-Übernahme...");
 
-    // Informiere alle über neuen Master
+    // Informiere Room über Handover-Start
     socket.send(
       JSON.stringify({
-        type: "external-call-master",
+        type: "call-handover-init",
         roomId: roomId,
-        masterDevice: deviceId,
+        newMasterDevice: deviceId,
+        externalPeerId: externalPeerId,
       })
     );
 
-    // Erstelle neue PeerConnection für externen Call
+    // Warte kurz, dann erstelle neue PeerConnection
     setTimeout(() => {
-      if (window.peerConnection) {
-        // Re-negotiate mit externem Partner
-        window.peerConnection.createOffer().then((offer) => {
-          window.peerConnection.setLocalDescription(offer);
-          socket.send(
-            JSON.stringify({
-              type: "offer",
-              offer: offer,
-            })
-          );
-          console.log("📤 Neues Offer für Call-Takeover gesendet");
-        });
-      }
+      createNewPeerConnection();
     }, 500);
   }
 
-  // Externen Call übergeben
-  function handoverExternalCall(newMasterDevice) {
+  // Call-Übergabe vorbereiten (altes Master-Device)
+  function prepareCallHandover(newMasterDevice) {
+    console.log(`🔄 Bereite Übergabe an ${newMasterDevice} vor`);
+
+    updateCallStatus(`⏳ Übergebe Call an ${newMasterDevice}`);
+    updateHandoverStatus("📤 Bereite Übergabe vor...");
+
+    // Informiere das neue Master-Device über den externen Partner
+    socket.send(
+      JSON.stringify({
+        type: "call-handover-init",
+        roomId: roomId,
+        newMasterDevice: newMasterDevice,
+        oldMasterDevice: deviceId,
+        externalPeerId: externalPeerId,
+      })
+    );
+
+    // Kurz warten, dann Connection schließen
+    setTimeout(() => {
+      completeCallHandover();
+    }, 1000);
+  }
+
+  // Handover-Initialisierung verarbeiten
+  function handleCallHandoverInit(msg) {
+    if (msg.newMasterDevice === deviceId) {
+      // Ich bin das neue Master-Device
+      console.log("📨 Call-Handover Initialisierung empfangen");
+      externalPeerId = msg.externalPeerId;
+      handoverInProgress = true;
+      updateHandoverStatus("📨 Handover-Details empfangen");
+    } else if (msg.oldMasterDevice === deviceId) {
+      // Ich war das alte Master-Device, bestätige
+      updateHandoverStatus("✅ Handover bestätigt");
+    }
+  }
+
+  // Neue PeerConnection für Handover erstellen
+  function createNewPeerConnection() {
+    console.log("🔧 Erstelle neue PeerConnection für Handover");
+    updateHandoverStatus("🔧 Neue Verbindung aufbauen...");
+
+    // Schließe alte Connection falls vorhanden
+    if (window.peerConnection) {
+      window.peerConnection.close();
+      window.peerConnection = null;
+    }
+
+    // Erstelle neue PeerConnection mit lokalem Stream
+    if (window.initializePeerConnection) {
+      window.initializePeerConnection();
+
+      // Füge lokalen Stream hinzu
+      if (window.peerConnection && localStream) {
+        localStream.getTracks().forEach((track) => {
+          window.peerConnection.addTrack(track, localStream);
+        });
+      }
+
+      // Erstelle neues Offer für externen Partner
+      setTimeout(() => {
+        if (window.peerConnection) {
+          window.peerConnection.createOffer().then((offer) => {
+            window.peerConnection.setLocalDescription(offer);
+
+            // Sende Offer an externen Partner mit Handover-Flag
+            socket.send(
+              JSON.stringify({
+                type: "offer",
+                offer: offer,
+                handover: true,
+                from: deviceId,
+              })
+            );
+
+            updateHandoverStatus("📤 Handover-Offer gesendet");
+            console.log("📤 Handover-Offer an externen Partner gesendet");
+
+            // Handover als fast abgeschlossen markieren
+            setTimeout(() => {
+              completeHandoverAsNewMaster();
+            }, 2000);
+          });
+        }
+      }, 500);
+    }
+  }
+
+  // Handover als neues Master-Device abschließen
+  function completeHandoverAsNewMaster() {
+    handoverInProgress = false;
+    isCallMaster = true;
+
+    updateCallStatus("📞 Call-Übernahme erfolgreich");
+    updateHandoverStatus("✅ Übernahme abgeschlossen");
+
+    // Informiere Room über erfolgreichen Handover
+    socket.send(
+      JSON.stringify({
+        type: "call-handover-complete",
+        roomId: roomId,
+        newMasterDevice: deviceId,
+      })
+    );
+
+    // UI nach 3 Sekunden zurücksetzen
+    setTimeout(() => {
+      updateHandoverStatus("");
+    }, 3000);
+  }
+
+  // Call-Übergabe abschließen (altes Master-Device)
+  function completeCallHandover() {
     isCallMaster = false;
-    updateCallStatus(`⏳ Call übertragen an ${newMasterDevice}`);
+    handoverInProgress = false;
 
     // PeerConnection schließen
     if (window.peerConnection) {
+      console.log("🔌 Schließe alte PeerConnection");
       window.peerConnection.close();
       window.peerConnection = null;
     }
@@ -330,6 +478,23 @@ window.addEventListener("load", () => {
     // Remote Video zurücksetzen
     if (window.remoteVideo) {
       window.remoteVideo.srcObject = null;
+    }
+
+    updateCallStatus("⏳ Call übertragen");
+    updateHandoverStatus("📤 Übergabe abgeschlossen");
+
+    // UI nach 3 Sekunden zurücksetzen
+    setTimeout(() => {
+      updateHandoverStatus("");
+    }, 3000);
+  }
+
+  // Handover-Abschluss verarbeiten
+  function handleCallHandoverComplete(msg) {
+    if (msg.newMasterDevice !== deviceId) {
+      // Anderes Device hat Handover abgeschlossen
+      updateCallStatus(`📞 ${msg.newMasterDevice} hat Call übernommen`);
+      isCallMaster = false;
     }
   }
 
@@ -345,6 +510,7 @@ window.addEventListener("load", () => {
         hasCamera: hasCamera,
         isCallMaster: isCallMaster,
         callActive: externalCallActive,
+        externalPeerId: externalPeerId,
       })
     );
   }
@@ -358,13 +524,27 @@ window.addEventListener("load", () => {
       callInfo.style.display = "block";
       callStatus.textContent = message;
 
-      if (message.includes("Master") || message.includes("aktiv")) {
+      if (message.includes("erfolgreich") || message.includes("Master")) {
         callInfo.style.background = "#d4edda";
         callInfo.style.borderLeft = "4px solid #28a745";
-      } else {
+      } else if (
+        message.includes("Übernahme") ||
+        message.includes("übertragen")
+      ) {
         callInfo.style.background = "#fff3cd";
         callInfo.style.borderLeft = "4px solid #ffc107";
+      } else {
+        callInfo.style.background = "#f8f9fa";
+        callInfo.style.borderLeft = "4px solid #6c757d";
       }
+    }
+  }
+
+  // Handover Status UI aktualisieren
+  function updateHandoverStatus(message) {
+    const handoverStatus = document.getElementById("handover-status");
+    if (handoverStatus) {
+      handoverStatus.textContent = message;
     }
   }
 
@@ -402,8 +582,11 @@ window.addEventListener("load", () => {
     window.endCall = function () {
       externalCallActive = false;
       isCallMaster = false;
+      handoverInProgress = false;
+      externalPeerId = null;
 
       updateCallStatus("📞 Call beendet");
+      updateHandoverStatus("");
       broadcastCallStatus();
 
       return originalEndCall.apply(this, arguments);
