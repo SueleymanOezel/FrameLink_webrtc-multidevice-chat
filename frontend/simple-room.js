@@ -144,12 +144,19 @@ window.addEventListener("load", () => {
           }
         }
 
-        // WebRTC Messages: Intelligente Filterung
+        // WebRTC Messages: Intelligente Filterung mit Debug-Logging
         if (
           msg.type === "offer" ||
           msg.type === "answer" ||
           msg.type === "ice"
         ) {
+          console.log(`🔍 WebRTC Message: ${msg.type}`);
+          console.log(`   - inRoom: ${inRoom}, isLocalRoom: ${isLocalRoom}`);
+          console.log(
+            `   - hasCamera: ${hasCamera}, externalCallActive: ${externalCallActive}`
+          );
+          console.log(`   - roomDeviceCount: ${roomDeviceCount}`);
+
           // Wenn ich im Room bin, nur WebRTC verarbeiten wenn:
           if (inRoom && isLocalRoom) {
             const shouldProcessWebRTC =
@@ -157,7 +164,13 @@ window.addEventListener("load", () => {
               !externalCallActive || // Noch kein Call aktiv (Call-Start)
               !hasOtherDevicesInRoom(); // Ich bin allein im Room
 
+            console.log(`   - shouldProcessWebRTC: ${shouldProcessWebRTC}`);
+            console.log(
+              `   - Grund: hasCamera(${hasCamera}) || !externalCallActive(${!externalCallActive}) || soloDevice(${!hasOtherDevicesInRoom()})`
+            );
+
             if (shouldProcessWebRTC) {
+              console.log(`✅ WebRTC Message wird verarbeitet: ${msg.type}`);
               // WebRTC verarbeiten
               if (originalOnMessage) originalOnMessage.call(socket, event);
 
@@ -169,10 +182,13 @@ window.addEventListener("load", () => {
             } else {
               // WebRTC Message ignorieren - anderes Gerät führt Call
               console.log(
-                `WebRTC Message ignoriert - ${hasCamera ? "habe Kamera" : "keine Kamera"}, Call: ${externalCallActive}`
+                `❌ WebRTC Message IGNORIERT: ${msg.type} - Grund: hasCamera(${hasCamera}), externalCallActive(${externalCallActive}), otherDevices(${hasOtherDevicesInRoom()})`
               );
             }
           } else {
+            console.log(
+              `✅ WebRTC Message verarbeitet (nicht im Room): ${msg.type}`
+            );
             // Nicht im Room -> normale Verarbeitung
             if (originalOnMessage) originalOnMessage.call(socket, event);
           }
@@ -359,13 +375,13 @@ window.addEventListener("load", () => {
   const originalStartCall = window.startCall;
   if (originalStartCall) {
     window.startCall = function () {
+      console.log(`🚀 === CALL START DEBUG ===`);
       console.log(
-        `🚀 Video-Call gestartet (Room: ${inRoom}, Devices: ${roomDeviceCount}, Camera: ${hasCamera})`
+        `   Room Status: inRoom(${inRoom}), isLocalRoom(${isLocalRoom}), devices(${roomDeviceCount})`
       );
-
-      // Call Status setzen
-      externalCallActive = true;
-      hasActivePeerConnection = true;
+      console.log(
+        `   Camera Status: hasCamera(${hasCamera}), externalCallActive(${externalCallActive})`
+      );
 
       updateCallStatus(`📹 Call gestartet von ${deviceId}`);
 
@@ -380,10 +396,25 @@ window.addEventListener("load", () => {
           "📹 KAMERA AKTIV (Auto)";
         document.getElementById("camera-status").style.color = "green";
         localVideo.style.border = "4px solid #4caf50";
+        console.log(`   Camera auto-activated: hasCamera(${hasCamera})`);
       }
 
+      console.log(
+        `🚀 Calling originalStartCall with externalCallActive(${externalCallActive})...`
+      );
+
+      // WICHTIG: originalStartCall ZUERST aufrufen, damit Offer verarbeitet wird
+      const result = originalStartCall.apply(this, arguments);
+
+      // DANN erst Call Status setzen
+      externalCallActive = true;
+      hasActivePeerConnection = true;
+      console.log(
+        `   Call Status updated: externalCallActive(${externalCallActive})`
+      );
+
       broadcastCallStatus();
-      return originalStartCall.apply(this, arguments);
+      return result;
     };
   }
 
