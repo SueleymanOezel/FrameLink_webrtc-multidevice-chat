@@ -79,6 +79,10 @@ window.addEventListener("load", () => {
       return;
     }
 
+    console.log("🚪 Multi-Device beitreten - Debug Start");
+    console.log("Socket state:", socket.readyState);
+    console.log("Original onmessage:", typeof socket.onmessage);
+
     socket.send(
       JSON.stringify({
         type: "join-room",
@@ -93,7 +97,10 @@ window.addEventListener("load", () => {
 
     inRoom = true;
     isLocalRoom = true;
+
+    console.log("📞 Calling setupRoomHandlers...");
     setupRoomHandlers();
+    console.log("✅ setupRoomHandlers completed");
   });
 
   // Video-Call starten
@@ -117,23 +124,36 @@ window.addEventListener("load", () => {
 
   // Room Message Handler
   function setupRoomHandlers() {
+    console.log("🔧 setupRoomHandlers() gestartet");
+
     const originalOnMessage = socket.onmessage;
+    console.log("Original onmessage gefunden:", typeof originalOnMessage);
+    console.log(
+      "Original onmessage function:",
+      originalOnMessage?.toString().substring(0, 100)
+    );
 
     socket.onmessage = async (event) => {
+      console.log("📨 Message empfangen in Room-Handler");
+
       let data = event.data;
       if (data instanceof Blob) data = await data.text();
 
       try {
         const msg = JSON.parse(data);
+        console.log("📨 Parsed message:", msg.type, msg.roomId || "no-room");
 
         // Room Messages verarbeiten
         if (msg.roomId === roomId && inRoom && isLocalRoom) {
+          console.log("🏠 Room message verarbeiten:", msg.type);
           switch (msg.type) {
             case "camera-request":
+              console.log("📹 Camera request verarbeiten");
               handleCameraSwitch(msg);
               return;
 
             case "call-status-sync":
+              console.log("📞 Call status sync");
               syncCallStatus(msg);
               return;
 
@@ -172,7 +192,12 @@ window.addEventListener("load", () => {
             if (shouldProcessWebRTC) {
               console.log(`✅ WebRTC Message wird verarbeitet: ${msg.type}`);
               // WebRTC verarbeiten
-              if (originalOnMessage) originalOnMessage.call(socket, event);
+              if (originalOnMessage) {
+                console.log("📞 Calling originalOnMessage...");
+                originalOnMessage.call(socket, event);
+              } else {
+                console.log("❌ originalOnMessage ist null!");
+              }
 
               // Call Status synchronisieren bei Offer/Answer
               if (msg.type === "offer" || msg.type === "answer") {
@@ -190,16 +215,26 @@ window.addEventListener("load", () => {
               `✅ WebRTC Message verarbeitet (nicht im Room): ${msg.type}`
             );
             // Nicht im Room -> normale Verarbeitung
-            if (originalOnMessage) originalOnMessage.call(socket, event);
+            if (originalOnMessage) {
+              originalOnMessage.call(socket, event);
+            }
           }
         } else {
+          console.log(`📨 Andere Message weitergeleitet: ${msg.type}`);
           // Andere Messages normal weiterleiten
-          if (originalOnMessage) originalOnMessage.call(socket, event);
+          if (originalOnMessage) {
+            originalOnMessage.call(socket, event);
+          }
         }
       } catch (e) {
-        if (originalOnMessage) originalOnMessage.call(socket, event);
+        console.log("📨 Keine JSON Message - weiterleiten:", e.message);
+        if (originalOnMessage) {
+          originalOnMessage.call(socket, event);
+        }
       }
     };
+
+    console.log("✅ Room handler installiert");
 
     // Initial setup
     if (localStream) {
