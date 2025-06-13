@@ -1,155 +1,542 @@
 <!doctype html>
 <html>
   <head>
-    <title>Simple WebRTC Video Chat</title>
+    <title>FrameLink - Video Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
       body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        background-color: #f5f5f5;
-      }
-
-      .container {
-        max-width: 1200px;
-        margin: 0 auto;
-      }
-
-      h1 {
-        text-align: center;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
         color: #333;
       }
 
+      .main-container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      /* Header */
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+        color: white;
+      }
+
+      .header h1 {
+        font-size: 2.5rem;
+        margin-bottom: 10px;
+        font-weight: 300;
+      }
+
+      .header p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+      }
+
+      /* Control Panel */
+      .control-panel {
+        background: white;
+        border-radius: 16px;
+        padding: 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      }
+
+      /* Primary Call Button */
+      .main-call-section {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      .main-call-btn {
+        background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+        color: white;
+        border: none;
+        padding: 18px 40px;
+        font-size: 18px;
+        font-weight: 600;
+        border-radius: 50px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        min-width: 200px;
+      }
+
+      .main-call-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+      }
+
+      .main-call-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      /* Advanced Options Toggle */
+      .advanced-toggle {
+        text-align: center;
+        margin: 20px 0;
+      }
+
+      .toggle-btn {
+        background: none;
+        border: none;
+        color: #666;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        transition: all 0.2s ease;
+      }
+
+      .toggle-btn:hover {
+        background: #f5f5f5;
+        color: #333;
+      }
+
+      .toggle-icon {
+        margin-left: 8px;
+        transition: transform 0.3s ease;
+      }
+
+      .toggle-icon.rotated {
+        transform: rotate(180deg);
+      }
+
+      /* Collapsible Sections */
+      .collapsible {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+      }
+
+      .collapsible.expanded {
+        max-height: 500px;
+      }
+
+      .section {
+        margin: 15px 0;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border-left: 4px solid #2196f3;
+      }
+
+      .section h4 {
+        margin-bottom: 10px;
+        color: #2196f3;
+        font-size: 16px;
+      }
+
+      /* Video Container */
       .videos {
         display: flex;
         justify-content: center;
         gap: 20px;
-        margin: 20px 0;
+        margin: 25px 0;
+        flex-wrap: wrap;
       }
 
       .video-container {
-        background-color: white;
-        padding: 10px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        background: white;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s ease;
+      }
+
+      .video-container:hover {
+        transform: translateY(-2px);
+      }
+
+      .video-container h3 {
+        margin-bottom: 10px;
+        font-size: 16px;
+        color: #555;
+        text-align: center;
       }
 
       video {
-        width: 400px;
-        height: 300px;
-        background-color: #000;
-        border-radius: 4px;
+        width: 350px;
+        height: 250px;
+        background: linear-gradient(45deg, #1a1a1a 0%, #2d2d2d 100%);
+        border-radius: 8px;
+        object-fit: cover;
       }
 
-      .controls {
-        text-align: center;
+      /* Call Controls */
+      .call-controls {
+        display: flex;
+        justify-content: center;
+        gap: 15px;
         margin: 20px 0;
+        flex-wrap: wrap;
       }
 
-      button {
-        background-color: #4caf50;
-        color: white;
+      .control-btn {
+        padding: 12px 20px;
         border: none;
-        padding: 12px 24px;
-        font-size: 16px;
-        border-radius: 4px;
+        border-radius: 25px;
         cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        min-width: 120px;
       }
 
-      button:hover {
-        background-color: #45a049;
+      .control-btn.camera {
+        background: #2196f3;
+        color: white;
       }
 
-      button:disabled {
-        background-color: #ccc;
+      .control-btn.mic {
+        background: #ff9800;
+        color: white;
+      }
+
+      .control-btn.end {
+        background: #f44336;
+        color: white;
+      }
+
+      .control-btn:hover {
+        transform: translateY(-1px);
+        filter: brightness(110%);
+      }
+
+      .control-btn:disabled {
+        background: #ddd;
         cursor: not-allowed;
+        transform: none;
       }
 
-      #status {
+      /* Status Display */
+      .status {
         text-align: center;
-        padding: 10px;
-        margin: 10px auto;
-        max-width: 600px;
-        background-color: #e0e0e0;
-        border-radius: 4px;
-        font-weight: bold;
+        padding: 12px 20px;
+        margin: 15px auto;
+        max-width: 500px;
+        background: white;
+        border-radius: 25px;
+        font-weight: 500;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #2196f3;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .header h1 {
+          font-size: 2rem;
+        }
+
+        video {
+          width: 300px;
+          height: 200px;
+        }
+
+        .videos {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .call-controls {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .control-btn {
+          width: 200px;
+        }
+      }
+
+      /* Utility Classes */
+      .btn-group {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      .btn-small {
+        padding: 8px 16px;
+        font-size: 13px;
+        border-radius: 20px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .btn-primary {
+        background: #2196f3;
+        color: white;
+      }
+
+      .btn-success {
+        background: #4caf50;
+        color: white;
+      }
+
+      .btn-warning {
+        background: #ff9800;
+        color: white;
+      }
+
+      .btn-small:hover {
+        filter: brightness(110%);
+        transform: translateY(-1px);
+      }
+
+      .btn-small:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      /* Input Styling */
+      .url-input {
+        width: 100%;
+        padding: 10px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: border-color 0.2s ease;
+        background: white;
+      }
+
+      .url-input:focus {
+        outline: none;
+        border-color: #2196f3;
+      }
+
+      .url-input:hover {
+        border-color: #bbb;
+      }
+
+      /* Device Info */
+      .device-info {
+        font-size: 12px;
+        color: #666;
+        background: #f0f0f0;
+        padding: 4px 8px;
+        border-radius: 12px;
+        display: inline-block;
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <h1>Simple WebRTC Video Chat</h1>
+    <div class="main-container">
+      <!-- Header -->
+      <div class="header">
+        <h1>📹 FrameLink</h1>
+        <p>Simple video calling made easy</p>
+      </div>
 
-      <div id="status">Initialisiere...</div>
+      <!-- Status Display -->
+      <div id="status" class="status">Initialisiere...</div>
 
+      <!-- Main Control Panel -->
+      <div class="control-panel">
+        <!-- Primary Call Button -->
+        <div class="main-call-section">
+          <button id="startCall" class="main-call-btn" disabled>
+            🚀 Start Video Call
+          </button>
+        </div>
+
+        <!-- Advanced Options Toggle -->
+        <div class="advanced-toggle">
+          <button class="toggle-btn" onclick="toggleAdvanced()">
+            ⚙️ Advanced Options
+            <span class="toggle-icon" id="toggle-icon">▼</span>
+          </button>
+        </div>
+
+        <!-- Collapsible Advanced Section -->
+        <div id="advanced-section" class="collapsible">
+          <!-- Room Sharing Section -->
+          <div class="section" id="room-info-section" style="display: none">
+            <h4>🏠 Room Sharing</h4>
+            <p style="margin-bottom: 10px; font-size: 14px">
+              Share this URL to invite others to your video call:
+            </p>
+            <input
+              id="room-url"
+              class="url-input"
+              readonly
+              onclick="this.select(); copyToClipboard(this.value)"
+            />
+            <p style="margin-top: 8px; font-size: 12px; color: #666">
+              💡 Click to copy URL to clipboard
+            </p>
+          </div>
+
+          <!-- Multi-Device Section -->
+          <div class="section">
+            <h4>📱 Multi-Device Control</h4>
+            <p style="margin-bottom: 15px; font-size: 14px; color: #666">
+              Use multiple devices as one system. Switch camera control between
+              devices during calls.
+            </p>
+
+            <div class="btn-group">
+              <button id="join-room" class="btn-small btn-primary">
+                🚪 Activate Multi-Device
+              </button>
+              <span class="device-info">
+                Device: <span id="device-id">-</span>
+              </span>
+            </div>
+
+            <!-- Multi-Device Controls (Hidden by default) -->
+            <div id="room-controls" style="display: none; margin-top: 15px">
+              <div class="btn-group" style="margin-bottom: 10px">
+                <button id="take-camera" class="btn-small btn-warning">
+                  📹 Take Camera Control
+                </button>
+              </div>
+
+              <div style="text-align: center">
+                <p
+                  id="camera-status"
+                  style="font-size: 14px; font-weight: bold; color: #666"
+                >
+                  ⏸️ Camera Inactive
+                </p>
+              </div>
+
+              <div
+                id="call-info"
+                style="
+                  display: none;
+                  margin-top: 10px;
+                  padding: 8px;
+                  background: #e3f2fd;
+                  border-radius: 6px;
+                  font-size: 13px;
+                "
+              >
+                <div id="call-status">📞 No active call</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video Section -->
       <div class="videos">
         <div class="video-container">
-          <h3>Lokales Video</h3>
+          <h3>📷 Your Camera</h3>
           <video id="localVideo" autoplay muted></video>
         </div>
 
         <div class="video-container">
-          <h3>Remote Video</h3>
+          <h3>👤 Remote Video</h3>
           <video id="remoteVideo" autoplay></video>
         </div>
       </div>
 
-      <div class="controls">
-        <button id="startCall" disabled>Anruf starten</button>
+      <!-- Call Controls -->
+      <div class="call-controls">
+        <button id="toggleCameraBtn" class="control-btn camera" disabled>
+          📹 Camera Off
+        </button>
+        <button id="toggleMicBtn" class="control-btn mic" disabled>
+          🎤 Mic Off
+        </button>
+        <button id="endCallBtn" class="control-btn end" disabled>
+          📞 End Call
+        </button>
       </div>
     </div>
 
-    <!-- Steuer-Buttons -->
-    <div
-      id="controls"
-      style="
-        display: flex;
-        justify-content: center;
-        gap: 16px;
-        margin-top: 10px;
-      "
-    >
-      <button id="toggleCameraBtn" class="toggle-btn active">Kamera aus</button>
-      <button id="toggleMicBtn" class="toggle-btn active">Mikro aus</button>
-      <button id="endCallBtn" class="end-btn">Anruf beenden</button>
-    </div>
-    <style>
-      #controls .end-btn {
-        background-color: #e53935;
-        color: white;
-      }
-      #controls .end-btn:hover {
-        background-color: #b71c1c;
-      }
-      #controls .toggle-btn {
-        background-color: white;
-        color: #333;
-        border: 1px solid #ccc;
-      }
-      #controls .toggle-btn.active {
-        background-color: #ccc;
-        color: #333;
-      }
-    </style>
+    <!-- JavaScript for UI Interactions -->
     <script>
-      // Toggle button state logic (example)
-      document
-        .getElementById("toggleCameraBtn")
-        .addEventListener("click", function () {
+      // Advanced Options Toggle
+      function toggleAdvanced() {
+        const section = document.getElementById("advanced-section");
+        const icon = document.getElementById("toggle-icon");
+
+        if (section.classList.contains("expanded")) {
+          section.classList.remove("expanded");
+          icon.classList.remove("rotated");
+          icon.textContent = "▼";
+        } else {
+          section.classList.add("expanded");
+          icon.classList.add("rotated");
+          icon.textContent = "▲";
+        }
+      }
+
+      // Copy to Clipboard
+      function copyToClipboard(text) {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            // Visual feedback
+            const input = document.getElementById("room-url");
+            const originalBg = input.style.background;
+            input.style.background = "#d4edda";
+            input.style.borderColor = "#28a745";
+
+            setTimeout(() => {
+              input.style.background = originalBg;
+              input.style.borderColor = "#e0e0e0";
+            }, 1000);
+          })
+          .catch(() => {
+            // Fallback for older browsers
+            document.getElementById("room-url").select();
+            document.execCommand("copy");
+          });
+      }
+
+      // Enhanced button toggle logic
+      document.addEventListener("DOMContentLoaded", () => {
+        const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+        const toggleMicBtn = document.getElementById("toggleMicBtn");
+
+        toggleCameraBtn.addEventListener("click", function () {
           this.classList.toggle("active");
           this.textContent = this.classList.contains("active")
-            ? "Kamera aus"
-            : "Kamera an";
+            ? "📹 Camera On"
+            : "📹 Camera Off";
         });
-      document
-        .getElementById("toggleMicBtn")
-        .addEventListener("click", function () {
+
+        toggleMicBtn.addEventListener("click", function () {
           this.classList.toggle("active");
           this.textContent = this.classList.contains("active")
-            ? "Mikro aus"
-            : "Mikro an";
+            ? "🎤 Mic On"
+            : "🎤 Mic Off";
         });
+      });
+
+      // Initialize room URL when room is created
+      window.addEventListener("load", () => {
+        setTimeout(() => {
+          const urlParams = new URLSearchParams(window.location.search);
+          const roomId = urlParams.get("room");
+
+          if (roomId) {
+            document.getElementById("room-url").value = window.location.href;
+            document.getElementById("room-info-section").style.display =
+              "block";
+          }
+        }, 100);
+      });
     </script>
 
+    <!-- Load original functionality -->
     <script src="app.js"></script>
     <script src="simple-room.js"></script>
   </body>

@@ -1,7 +1,7 @@
-// simple-room.js - Multi-Device Room System
+// simple-room.js - Multi-Device Room System (LOGIC ONLY)
 // ================================================
 // Funktionen: Multi-Device Setup, Kamera-Switching, Externe Calls
-// Status: FUNKTIONIERT ✅ - Basis für weitere Features
+// Status: SAUBERE TRENNUNG - Kein HTML Creation mehr!
 
 window.addEventListener("load", () => {
   // ================================================
@@ -19,63 +19,30 @@ window.addEventListener("load", () => {
     window.history.replaceState({}, "", "?room=" + roomId);
     isLocalRoom = true;
 
-    // Info-Box für neuen Room anzeigen
-    const info = document.createElement("div");
-    info.style.cssText =
-      "background:#e3f2fd; padding:20px; margin:20px auto; max-width:600px; border-radius:8px;";
-    info.innerHTML = `
-      <h2>📹 Smart Multi-Device Room</h2>
-      <p><strong>Room ID:</strong> ${roomId}</p>
-      <p>Diese URL funktioniert für beides:</p>
-      <input value="${window.location.href}" readonly style="width:100%; padding:10px;" onclick="this.select()">
-      <div style="margin-top:15px; padding:12px; background:white; border-radius:4px;">
-        <p><strong>🎯 Wie es funktioniert:</strong></p>
-        <p>✓ <strong>Multi-Device:</strong> Öffne auf mehreren eigenen Geräten</p>
-        <p>✓ <strong>Video-Chat:</strong> Teile URL mit anderen für Video-Calls</p>
-        <p>✓ <strong>Smart Switch:</strong> Kamera-Wechsel funktioniert auch während Calls!</p>
-      </div>
-    `;
-    document.body.insertBefore(info, document.body.firstChild);
+    // Room URL in existing HTML input setzen (falls vorhanden)
+    const roomUrlInput = document.getElementById("room-url");
+    if (roomUrlInput) {
+      roomUrlInput.value = window.location.href;
+    }
+
+    // Room info section anzeigen (falls vorhanden)
+    const roomInfoSection = document.getElementById("room-info-section");
+    if (roomInfoSection) {
+      roomInfoSection.style.display = "block";
+    }
   }
-
-  // ================================================
-  // UI CREATION - Room Controls Interface
-  // ================================================
-
-  // Room Control Panel erstellen
-  const controls = document.createElement("div");
-  controls.style.cssText =
-    "background:#fff3cd; padding:15px; margin:20px auto; max-width:600px; border-radius:8px; text-align:center;";
-  controls.innerHTML = `
-    <h3>🏠 Room: ${roomId}</h3>
-    <p>Device: <code id="device-id">${Math.random().toString(36).substr(2, 6)}</code></p>
-    
-    <div style="display:flex; justify-content:center; gap:10px; margin:15px 0; flex-wrap:wrap;">
-      <button id="join-room" style="padding:10px 18px; background:#2196F3; color:white; border:none; border-radius:4px; cursor:pointer; font-size:14px;">
-        🚪 Multi-Device aktivieren
-      </button>
-      <button id="video-call-btn" style="padding:10px 18px; background:#4caf50; color:white; border:none; border-radius:4px; cursor:pointer; font-size:14px;">
-        📞 Video-Call starten
-      </button>
-    </div>
-    
-    <div id="room-controls" style="display:none; margin-top:15px;">
-      <button id="take-camera" style="padding:8px 16px; margin:5px; background:#4caf50; color:white; border:none; border-radius:4px;">
-        📹 Kamera übernehmen
-      </button>
-      <p id="camera-status" style="margin:8px 0; font-weight:bold; font-size:14px;">⏸️ Kamera inaktiv</p>
-      <div id="call-info" style="margin:10px 0; padding:8px; background:#f8f9fa; border-radius:4px; display:none; font-size:13px;">
-        <div id="call-status">📞 Kein aktiver Call</div>
-      </div>
-    </div>
-  `;
-  document.body.insertBefore(controls, document.querySelector(".container"));
 
   // ================================================
   // STATE MANAGEMENT - Globale Variablen
   // ================================================
 
-  const deviceId = document.getElementById("device-id").textContent;
+  // Device ID in HTML setzen (falls Element existiert)
+  const deviceIdElement = document.getElementById("device-id");
+  const deviceId = Math.random().toString(36).substr(2, 6);
+  if (deviceIdElement) {
+    deviceIdElement.textContent = deviceId;
+  }
+
   let inRoom = false; // Bin ich in einem Multi-Device Room?
   let hasCamera = false; // Habe ich die Kamera-Kontrolle?
   let roomDeviceCount = 1; // Anzahl Geräte im Room
@@ -112,9 +79,7 @@ window.addEventListener("load", () => {
             hasCamera = true;
             amCurrentCameraMaster = true;
             console.log("✅ Aktive Kamera erkannt");
-            document.getElementById("camera-status").textContent =
-              "📹 KAMERA AKTIV";
-            document.getElementById("camera-status").style.color = "green";
+            updateCameraStatus("📹 KAMERA AKTIV", "green");
             if (window.localVideo)
               window.localVideo.style.border = "4px solid #4caf50";
           }
@@ -130,48 +95,82 @@ window.addEventListener("load", () => {
   }
 
   // ================================================
-  // EVENT HANDLERS - Button Click Events
+  // EVENT HANDLERS - Button Click Events (nur wenn Elemente existieren)
   // ================================================
 
   // Multi-Device Room beitreten
-  document.getElementById("join-room").addEventListener("click", () => {
-    // WebSocket-Verbindung prüfen
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      alert("Server noch nicht verbunden!");
-      return;
-    }
+  const joinRoomBtn = document.getElementById("join-room");
+  if (joinRoomBtn) {
+    joinRoomBtn.addEventListener("click", () => {
+      // WebSocket-Verbindung prüfen
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        alert("Server noch nicht verbunden!");
+        return;
+      }
 
-    console.log("🚪 Multi-Device beitreten - Debug Start");
-    console.log("Socket state:", socket.readyState);
-    console.log("Original onmessage:", typeof socket.onmessage);
+      console.log("🚪 Multi-Device beitreten - Debug Start");
+      console.log("Socket state:", socket.readyState);
+      console.log("Original onmessage:", typeof socket.onmessage);
 
-    // Bestehende Calls prüfen vor Room-Beitritt
-    detectExistingCall();
+      // Bestehende Calls prüfen vor Room-Beitritt
+      detectExistingCall();
 
-    // Room-Beitritt Request senden
-    socket.send(
-      JSON.stringify({
-        type: "join-room",
-        roomId: roomId,
-        deviceId: deviceId,
-      })
-    );
+      // Room-Beitritt Request senden
+      socket.send(
+        JSON.stringify({
+          type: "join-room",
+          roomId: roomId,
+          deviceId: deviceId,
+        })
+      );
 
-    // UI aktualisieren
-    document.getElementById("join-room").disabled = true;
-    document.getElementById("join-room").textContent = "✅ Multi-Device aktiv";
-    document.getElementById("room-controls").style.display = "block";
+      // UI aktualisieren (nur wenn Elemente existieren)
+      joinRoomBtn.disabled = true;
+      joinRoomBtn.textContent = "✅ Multi-Device Active";
 
-    // State setzen
-    inRoom = true;
-    isLocalRoom = true;
-    console.log("📞 Calling setupRoomHandlers...");
-    setupRoomHandlers();
-    console.log("✅ setupRoomHandlers completed");
-  });
+      const roomControls = document.getElementById("room-controls");
+      if (roomControls) {
+        roomControls.style.display = "block";
+      }
 
-  // Video-Call starten
-  document.getElementById("video-call-btn").addEventListener("click", () => {
+      // State setzen
+      inRoom = true;
+      isLocalRoom = true;
+      console.log("📞 Calling setupRoomHandlers...");
+      setupRoomHandlers();
+      console.log("✅ setupRoomHandlers completed");
+    });
+  }
+
+  // Video-Call starten (sowohl original startCall als auch video-call-btn)
+  const videoCallBtn = document.getElementById("video-call-btn");
+  if (videoCallBtn) {
+    videoCallBtn.addEventListener("click", () => {
+      startVideoCallLogic();
+    });
+  }
+
+  // Kamera-Kontrolle übernehmen
+  const takeCameraBtn = document.getElementById("take-camera");
+  if (takeCameraBtn) {
+    takeCameraBtn.addEventListener("click", () => {
+      if (!inRoom) return;
+      console.log("🔄 Kamera-Übernahme angefordert");
+      socket.send(
+        JSON.stringify({
+          type: "camera-request",
+          roomId: roomId,
+          deviceId: deviceId,
+        })
+      );
+    });
+  }
+
+  // ================================================
+  // VIDEO CALL LOGIC - Zentrale Call-Logik
+  // ================================================
+
+  function startVideoCallLogic() {
     console.log(
       `🎯 Video-Call Start - inRoom: ${inRoom}, devices: ${roomDeviceCount}, hasCamera: ${hasCamera}`
     );
@@ -184,7 +183,7 @@ window.addEventListener("load", () => {
       } else {
         console.log("❌ Multi-Device Call ohne Kamera - fordere Kamera an");
         alert(
-          "Du brauchst die Kamera für einen Call! Klicke 'Kamera übernehmen'"
+          "Du brauchst die Kamera für einen Call! Klicke 'Take Camera Control'"
         );
       }
     } else {
@@ -192,20 +191,7 @@ window.addEventListener("load", () => {
       console.log("✅ Solo/Normal Call");
       if (window.startCall) window.startCall();
     }
-  });
-
-  // Kamera-Kontrolle übernehmen
-  document.getElementById("take-camera").addEventListener("click", () => {
-    if (!inRoom) return;
-    console.log("🔄 Kamera-Übernahme angefordert");
-    socket.send(
-      JSON.stringify({
-        type: "camera-request",
-        roomId: roomId,
-        deviceId: deviceId,
-      })
-    );
-  });
+  }
 
   // ================================================
   // ROOM MESSAGE HANDLING - WebSocket Message Router
@@ -319,9 +305,7 @@ window.addEventListener("load", () => {
             }
 
             // UI aktualisieren
-            document.getElementById("camera-status").textContent =
-              "📹 KAMERA AUTO-AKTIV";
-            document.getElementById("camera-status").style.color = "orange";
+            updateCameraStatus("📹 KAMERA AUTO-AKTIV", "orange");
             if (window.localVideo)
               window.localVideo.style.border = "4px solid #ff9800";
 
@@ -416,8 +400,7 @@ window.addEventListener("load", () => {
       }
 
       // UI aktualisieren: Aktive Kamera
-      document.getElementById("camera-status").textContent = "📹 KAMERA AKTIV";
-      document.getElementById("camera-status").style.color = "green";
+      updateCameraStatus("📹 KAMERA AKTIV", "green");
       if (window.localVideo)
         window.localVideo.style.border = "4px solid #4caf50";
 
@@ -451,9 +434,7 @@ window.addEventListener("load", () => {
       }
 
       // UI aktualisieren: Inaktive Kamera
-      document.getElementById("camera-status").textContent =
-        `⏸️ ${msg.deviceId} hat Kamera`;
-      document.getElementById("camera-status").style.color = "gray";
+      updateCameraStatus(`⏸️ ${msg.deviceId} has camera`, "gray");
       if (window.localVideo) window.localVideo.style.border = "2px solid #ccc";
 
       console.log("⏸️ Kamera abgegeben an:", msg.deviceId);
@@ -629,8 +610,17 @@ window.addEventListener("load", () => {
   }
 
   // ================================================
-  // UI UPDATES - Status und Feedback
+  // UI UPDATES - Status und Feedback (nur wenn Elemente existieren)
   // ================================================
+
+  // Camera Status UI aktualisieren
+  function updateCameraStatus(text, color) {
+    const statusEl = document.getElementById("camera-status");
+    if (statusEl) {
+      statusEl.textContent = text;
+      statusEl.style.color = color;
+    }
+  }
 
   // Call Status UI aktualisieren
   function updateCallStatus(message) {
@@ -708,4 +698,18 @@ window.addEventListener("load", () => {
       return originalEndCall.apply(this, arguments);
     };
   }
+
+  // ================================================
+  // GLOBAL EXPORTS - Für externe Nutzung
+  // ================================================
+
+  // Stelle wichtige Funktionen global zur Verfügung
+  window.multiDeviceRoom = {
+    startVideoCall: startVideoCallLogic,
+    deviceId: deviceId,
+    roomId: roomId,
+    isInRoom: () => inRoom,
+    hasCamera: () => hasCamera,
+    callActive: () => callActiveWithExternal,
+  };
 });
