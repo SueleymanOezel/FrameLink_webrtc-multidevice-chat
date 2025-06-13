@@ -248,6 +248,7 @@ function startSimpleFaceDetection() {
 
     if (facePixels > 300) {
       // Gesicht erkannt
+      console.log(`Gesicht erkannt! Pixel: ${facePixels}`);
       noFaceCount = 0;
 
       if (!isActiveDevice && socket) {
