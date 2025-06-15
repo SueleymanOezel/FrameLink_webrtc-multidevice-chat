@@ -30,6 +30,14 @@ window.addEventListener("load", () => {
     canvasHeight: 240,
   };
 
+  // Logging Settings
+  const LOGGING_CONFIG = {
+    debugMode: false, // DEBUG-Logs nur wenn true
+    logOnlyChanges: true, // Nur bei State-Änderungen loggen
+    maxLogFrequency: 2000, // Max alle 2 Sekunden
+    verboseProcessing: false, // Verbose Processing-Logs deaktiviert
+  };
+
   // ================================================================
   // STATE MANAGEMENT - Face Detection
   // ================================================================
@@ -40,6 +48,7 @@ window.addEventListener("load", () => {
   let canvasToDeviceMap = new Map(); // canvas-id -> deviceId (FIX für MediaPipe)
   let activeDetections = 0; // counter für concurrent detections
   let processingQueue = new Map(); // deviceId -> processing timestamp
+  let lastLoggedStates = new Map(); // deviceId -> last logged state (für anti-spam)
 
   // ================================================================
   // MEDIAPIPE INITIALIZATION
@@ -336,7 +345,7 @@ window.addEventListener("load", () => {
     }
   }
 
-  // Device ID aus Canvas finden (VERBESSERTE VERSION)
+  // Device ID aus Canvas finden (VERBESSERTE VERSION mit weniger Logs)
   function findDeviceIdFromCanvas(canvas) {
     // Methode 1: Direkte Canvas-Eigenschaften prüfen
     if (canvas && canvas._faceDetectionDeviceId) {
@@ -367,24 +376,37 @@ window.addEventListener("load", () => {
       .sort((a, b) => b[1] - a[1]); // Neueste zuerst
 
     if (recentProcessing.length > 0) {
-      console.log(
-        "🔄 Fallback: Nehme neueste Processing Device:",
-        recentProcessing[0][0]
-      );
-      return recentProcessing[0][0];
+      // Nur bei erstem Fallback loggen, nicht bei jedem
+      const deviceId = recentProcessing[0][0];
+      const lastFallbackLog = lastLoggedStates.get(`fallback-${deviceId}`);
+      if (!lastFallbackLog || Date.now() - lastFallbackLog > 5000) {
+        console.log("🔄 Fallback: Device ID via Processing Queue:", deviceId);
+        lastLoggedStates.set(`fallback-${deviceId}`, Date.now());
+      }
+      return deviceId;
     }
 
-    console.error(
-      "❌ Canvas Device-ID Lookup failed - alle Methoden fehlgeschlagen"
-    );
+    // Nur alle 10 Sekunden Error loggen
+    const lastErrorLog = lastLoggedStates.get("lookup-error");
+    if (!lastErrorLog || Date.now() - lastErrorLog > 10000) {
+      console.error(
+        "❌ Canvas Device-ID Lookup failed - alle Methoden fehlgeschlagen"
+      );
+      lastLoggedStates.set("lookup-error", Date.now());
+    }
     return null;
   }
 
-  // Face Detection Results für Device verarbeiten
+  // Face Detection Results für Device verarbeiten (QUIET VERSION)
   function processFaceDetectionResults(deviceId, results) {
     const state = faceDetectionStates.get(deviceId);
     if (!state) {
-      console.warn("⚠️ State nicht gefunden für Device:", deviceId);
+      // Nur einmal pro Device warnen
+      const lastWarn = lastLoggedStates.get(`missing-state-${deviceId}`);
+      if (!lastWarn || Date.now() - lastWarn > 30000) {
+        console.warn("⚠️ State nicht gefunden für Device:", deviceId);
+        lastLoggedStates.set(`missing-state-${deviceId}`, Date.now());
+      }
       return;
     }
 
@@ -396,15 +418,24 @@ window.addEventListener("load", () => {
     let maxConfidence = 0;
     let faceCount = 0;
 
-    // DEBUG: MediaPipe Results-Struktur loggen
-    if (results.detections && results.detections.length > 0) {
-      console.log("🔍 DEBUG - MediaPipe Results Structure:", {
-        detectionsLength: results.detections.length,
-        firstDetection: results.detections[0],
-        detectionKeys: Object.keys(results.detections[0] || {}),
-        score: results.detections[0]?.score,
-        confidence: results.detections[0]?.confidence,
-      });
+    // DEBUG: MediaPipe Results-Struktur loggen (nur bei Debug-Mode oder einmalig)
+    if (
+      LOGGING_CONFIG.debugMode &&
+      results.detections &&
+      results.detections.length > 0
+    ) {
+      const lastDebugLog = lastLoggedStates.get(`debug-${deviceId}`);
+      if (!lastDebugLog || Date.now() - lastDebugLog > 10000) {
+        console.log("🔍 DEBUG - MediaPipe Results Structure:", {
+          deviceId,
+          detectionsLength: results.detections.length,
+          firstDetection: results.detections[0],
+          detectionKeys: Object.keys(results.detections[0] || {}),
+          score: results.detections[0]?.score,
+          confidence: results.detections[0]?.confidence,
+        });
+        lastLoggedStates.set(`debug-${deviceId}`, Date.now());
+      }
     }
 
     // Faces analysieren mit robusten Score-Extraction
@@ -439,7 +470,18 @@ window.addEventListener("load", () => {
         } else {
           // Fallback: Wenn kein Score gefunden, nehme 0.8 als Default für erkannte Faces
           confidence = 0.8;
-          console.log("⚠️ Kein confidence score gefunden, nutze Fallback 0.8");
+          // Nur alle 30 Sekunden warnen
+          const lastFallbackWarn = lastLoggedStates.get(
+            `confidence-fallback-${deviceId}`
+          );
+          if (!lastFallbackWarn || Date.now() - lastFallbackWarn > 30000) {
+            console.log(
+              "⚠️ Kein confidence score gefunden für",
+              deviceId,
+              "- nutze Fallback 0.8"
+            );
+            lastLoggedStates.set(`confidence-fallback-${deviceId}`, Date.now());
+          }
         }
 
         if (confidence > maxConfidence) {
@@ -454,23 +496,26 @@ window.addEventListener("load", () => {
       hasFace !== previousHasFace ||
       Math.abs(maxConfidence - state.confidence) > 0.1;
 
-    if (significantChange) {
+    if (significantChange || !LOGGING_CONFIG.logOnlyChanges) {
       // State aktualisieren
       state.hasFace = hasFace;
       state.confidence = maxConfidence;
       state.lastUpdate = currentTime;
 
-      console.log(`🎭 Face Detection Update - ${deviceId}:`, {
-        hasFace,
-        confidence: maxConfidence.toFixed(2),
-        faces: faceCount,
-      });
+      // Nur bei bedeutenden Änderungen loggen
+      if (significantChange) {
+        console.log(`🎭 Face Detection Update - ${deviceId}:`, {
+          hasFace,
+          confidence: maxConfidence.toFixed(2),
+          faces: faceCount,
+        });
 
-      // UI Update
-      updateFaceDetectionUI(deviceId, hasFace, maxConfidence);
+        // UI Update
+        updateFaceDetectionUI(deviceId, hasFace, maxConfidence);
 
-      // Event System benachrichtigen
-      notifyFaceDetectionChange(deviceId, hasFace, maxConfidence);
+        // Event System benachrichtigen
+        notifyFaceDetectionChange(deviceId, hasFace, maxConfidence);
+      }
     }
   }
 
@@ -664,6 +709,21 @@ window.addEventListener("load", () => {
         faceDetectionStates.forEach((state, deviceId) => {
           console.log(`  ${deviceId}:`, state);
         });
+      },
+      // Neue Debug-Controls
+      enableVerboseLogging: () => {
+        LOGGING_CONFIG.debugMode = true;
+        LOGGING_CONFIG.logOnlyChanges = false;
+        console.log("🔊 Verbose Logging aktiviert");
+      },
+      disableVerboseLogging: () => {
+        LOGGING_CONFIG.debugMode = false;
+        LOGGING_CONFIG.logOnlyChanges = true;
+        console.log("🔇 Verbose Logging deaktiviert - nur wichtige Änderungen");
+      },
+      clearLogCache: () => {
+        lastLoggedStates.clear();
+        console.log("🧹 Log Cache geleert");
       },
     },
   };
