@@ -243,6 +243,14 @@ window.addEventListener("load", () => {
               console.log(`Room: ${msg.devices?.length || 0} Geräte verbunden`);
               roomDeviceCount = msg.devices?.length || 1;
               return;
+
+            case "room-call-start":
+              console.log(
+                "📞 Room Call Start empfangen von:",
+                msg.fromDeviceId
+              );
+              handleRoomCallStart(msg);
+              return;
           }
         }
 
@@ -399,8 +407,40 @@ window.addEventListener("load", () => {
   }
 
   // ================================================
-  // CAMERA SWITCHING - Kamera-Kontrolle zwischen Geräten
+  // ROOM CALL COORDINATION - Synchronisiere Calls zwischen Geräten
   // ================================================
+
+  // Handle room call start from master device
+  function handleRoomCallStart(msg) {
+    if (!hasCamera && msg.fromDeviceId !== deviceId) {
+      console.log("📞 Starte Call automatisch (von Kamera-Master)");
+      callActiveWithExternal = true;
+      updateCallStatus("📞 Call gestartet von Master-Gerät");
+
+      // UI buttons aktivieren
+      const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+      const toggleMicBtn = document.getElementById("toggleMicBtn");
+      const endCallBtn = document.getElementById("endCallBtn");
+
+      if (toggleCameraBtn) toggleCameraBtn.disabled = false;
+      if (toggleMicBtn) toggleMicBtn.disabled = false;
+      if (endCallBtn) endCallBtn.disabled = false;
+    }
+  }
+
+  // Send room call notification to other devices
+  function notifyRoomCallStart() {
+    if (inRoom && hasCamera && roomDeviceCount > 1) {
+      console.log("📢 Benachrichtige andere Room-Geräte über Call-Start");
+      socket.send(
+        JSON.stringify({
+          type: "room-call-start",
+          roomId: roomId,
+          fromDeviceId: deviceId,
+        })
+      );
+    }
+  }
 
   // Kamera-Wechsel zwischen Geräten verarbeiten
   function handleCameraSwitch(msg) {
