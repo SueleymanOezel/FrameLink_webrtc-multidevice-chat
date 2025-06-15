@@ -266,6 +266,19 @@ window.addEventListener("load", () => {
           );
           console.log("   - roomDeviceCount:", roomDeviceCount);
 
+          // 🚫 FIX 1: Blockiere externe Anrufe wenn mehrere Geräte im Room sind
+          if (
+            roomDeviceCount > 1 &&
+            (msg.roomId === "no-room" || !msg.roomId)
+          ) {
+            console.log(
+              "🚫 Blockiere externen Anruf - Room hat",
+              roomDeviceCount,
+              "Geräte"
+            );
+            return; // Message wird nicht verarbeitet
+          }
+
           // REGEL 1: Nicht im Room → Normal verarbeiten
           if (!inRoom || !isLocalRoom) {
             console.log("✅ WebRTC (nicht im Room): Normal verarbeiten");
@@ -399,10 +412,18 @@ window.addEventListener("load", () => {
         window.localStream.getVideoTracks().forEach((t) => (t.enabled = true));
       }
 
-      // UI aktualisieren: Aktive Kamera
+      // 🔧 FIX 2: Verbesserte UI Updates für Kamera-Switching
       updateCameraStatus("📹 KAMERA AKTIV", "green");
       if (window.localVideo)
         window.localVideo.style.border = "4px solid #4caf50";
+
+      // Button Status aktualisieren
+      const takeCameraBtn = document.getElementById("take-camera");
+      if (takeCameraBtn) {
+        takeCameraBtn.textContent = "📹 KAMERA AKTIV";
+        takeCameraBtn.style.backgroundColor = "#4CAF50";
+        takeCameraBtn.disabled = true;
+      }
 
       console.log(
         "✅ Kamera übernommen - hasCamera:",
@@ -433,9 +454,17 @@ window.addEventListener("load", () => {
         window.localStream.getVideoTracks().forEach((t) => (t.enabled = false));
       }
 
-      // UI aktualisieren: Inaktive Kamera
+      // 🔧 FIX 2: Verbesserte UI Updates für Kamera-Switching
       updateCameraStatus(`⏸️ ${msg.deviceId} has camera`, "gray");
       if (window.localVideo) window.localVideo.style.border = "2px solid #ccc";
+
+      // Button Status aktualisieren
+      const takeCameraBtn = document.getElementById("take-camera");
+      if (takeCameraBtn) {
+        takeCameraBtn.textContent = "📹 Take Camera Control";
+        takeCameraBtn.style.backgroundColor = "#2196F3";
+        takeCameraBtn.disabled = false;
+      }
 
       console.log("⏸️ Kamera abgegeben an:", msg.deviceId);
 
