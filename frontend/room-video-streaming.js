@@ -27,69 +27,158 @@ window.addEventListener("load", () => {
       localDeviceId = window.multiDeviceRoom.deviceId;
       currentRoomId = window.multiDeviceRoom.roomId;
       console.log("✅ Room System erkannt:", { localDeviceId, currentRoomId });
-      initRoomVideoSystem();
+      integrateWithSimpleRoom(); // Geändert von initRoomVideoSystem()
     } else {
       console.log("⏳ Warte auf Room System...");
       setTimeout(waitForRoomSystem, 1000);
     }
   }
 
-  // Start initialization
-  setTimeout(waitForRoomSystem, 500);
+  // Start initialization mit Delay um sicherzustellen dass app.js geladen ist
+  setTimeout(waitForRoomSystem, 2000); // Verlängert von 500ms auf 2000ms
 
   // ================================================================
   // ROOM VIDEO SYSTEM INITIALIZATION
   // ================================================================
 
-  function initRoomVideoSystem() {
-    console.log("🔧 Room Video System initialisiert");
+  // ================================================================
+  // DIRECT INTEGRATION - Hook directly into simple-room.js
+  // ================================================================
 
-    // Check multiple possible WebSocket references
-    const socket =
-      window.socket ||
-      window.ws ||
-      (window.connectWebSocket && window.connectWebSocket.socket);
+  // Direct integration with simple-room.js WebSocket
+  function integrateWithSimpleRoom() {
+    console.log("🔗 Integriere direkt mit simple-room.js");
 
-    console.log("🔍 WebSocket Check:", {
-      windowSocket: !!window.socket,
-      globalSocket: !!socket,
-      socketReadyState: socket?.readyState,
-      WebSocketOPEN: WebSocket.OPEN,
-    });
+    // Check if simple-room has exposed the socket
+    const checkSimpleRoomSocket = () => {
+      // Try to find socket from global scope
+      if (typeof socket !== "undefined" && socket) {
+        console.log("✅ Socket aus Global Scope gefunden");
+        hookIntoWebSocket(socket);
+        return true;
+      }
 
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      console.log("✅ WebSocket gefunden und verbunden");
-      hookIntoWebSocket(socket);
-    } else if (socket) {
-      console.log("⏳ WebSocket gefunden aber nicht connected, warte...");
-      setTimeout(initRoomVideoSystem, 1000);
-    } else {
-      console.log("❌ Kein WebSocket gefunden, versuche global zu finden...");
-      findWebSocketGlobally();
+      // Try window.socket
+      if (window.socket) {
+        console.log("✅ Socket aus window gefunden");
+        hookIntoWebSocket(window.socket);
+        return true;
+      }
+
+      return false;
+    };
+
+    // Try immediate check
+    if (checkSimpleRoomSocket()) return;
+
+    // Fallback: Override setupRoomHandlers to inject our handler
+    const originalSetupRoomHandlers = window.setupRoomHandlers;
+    if (originalSetupRoomHandlers) {
+      window.setupRoomHandlers = function (...args) {
+        console.log("🔧 Hooke in setupRoomHandlers");
+        const result = originalSetupRoomHandlers.apply(this, args);
+
+        // Now socket should be available
+        setTimeout(() => {
+          if (window.socket) {
+            console.log("✅ Socket nach setupRoomHandlers gefunden");
+            hookIntoWebSocket(window.socket);
+          }
+        }, 500);
+
+        return result;
+      };
     }
+
+    // Fallback: Direct polling
+    let pollCount = 0;
+    const pollForSocket = () => {
+      if (checkSimpleRoomSocket()) return;
+
+      pollCount++;
+      if (pollCount < 20) {
+        console.log(`🔍 Socket Polling ${pollCount}/20...`);
+        setTimeout(pollForSocket, 1000);
+      } else {
+        console.error("❌ Socket nicht gefunden nach 20 Versuchen");
+      }
+    };
+
+    setTimeout(pollForSocket, 1000);
   }
 
   // Fallback: Global nach WebSocket suchen
   function findWebSocketGlobally() {
     console.log("🔍 Suche WebSocket global...");
 
-    // Warte auf app.js load
-    setTimeout(() => {
-      if (window.socket) {
-        console.log("✅ WebSocket nach Wartezeit gefunden");
-        hookIntoWebSocket(window.socket);
-      } else {
-        console.log("❌ WebSocket immer noch nicht gefunden, retry...");
-        if (findWebSocketGlobally.retries < 10) {
-          findWebSocketGlobally.retries++;
-          setTimeout(findWebSocketGlobally, 2000);
-        } else {
-          console.error("❌ WebSocket nicht gefunden nach 10 Versuchen");
+    // Debug: Zeige alle verfügbaren WebSocket-ähnlichen Objekte
+    console.log("🔍 Debug - Verfügbare Objekte:", {
+      windowSocket: !!window.socket,
+      windowWs: !!window.ws,
+      globalSocket: typeof socket !== "undefined" ? !!socket : false,
+      simpleRoomSocket: !!window.multiDeviceRoom,
+    });
+
+    // Prüfe direkt auf window.socket
+    if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+      console.log("✅ WebSocket nach Wartezeit gefunden!");
+      hookIntoWebSocket(window.socket);
+      return;
+    }
+
+    // Fallback: Suche in window nach WebSocket-ähnlichen Objekten
+    for (let key in window) {
+      try {
+        if (
+          window[key] &&
+          typeof window[key] === "object" &&
+          window[key].constructor &&
+          window[key].constructor.name === "WebSocket" &&
+          window[key].readyState === WebSocket.OPEN
+        ) {
+          console.log("✅ WebSocket gefunden als:", key);
+          hookIntoWebSocket(window[key]);
+          return;
         }
+      } catch (e) {
+        // Ignore access errors
       }
-    }, 2000);
+    }
+
+    // Retry logic
+    if (findWebSocketGlobally.retries < 15) {
+      findWebSocketGlobally.retries++;
+      console.log(
+        `⏳ Retry ${findWebSocketGlobally.retries}/15 in 1 Sekunde...`
+      );
+      setTimeout(findWebSocketGlobally, 1000);
+    } else {
+      console.error("❌ WebSocket nicht gefunden nach 15 Versuchen");
+      console.log("🔧 Versuche manuellen Hook...");
+      attemptManualWebSocketHook();
+    }
   }
   findWebSocketGlobally.retries = 0;
+
+  // Manueller WebSocket Hook als letzter Fallback
+  function attemptManualWebSocketHook() {
+    console.log("🔧 Manueller WebSocket Hook Versuch...");
+
+    // Überwache window.socket Erstellung
+    let socketWatcher = setInterval(() => {
+      if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+        console.log("✅ WebSocket endlich gefunden durch Überwachung!");
+        clearInterval(socketWatcher);
+        hookIntoWebSocket(window.socket);
+      }
+    }, 500);
+
+    // Stop watching after 30 seconds
+    setTimeout(() => {
+      clearInterval(socketWatcher);
+      console.log("❌ Socket Überwachung gestoppt - WebSocket nicht gefunden");
+    }, 30000);
+  }
 
   // ================================================================
   // WEBSOCKET INTEGRATION - Erweitere existing Message Handler
