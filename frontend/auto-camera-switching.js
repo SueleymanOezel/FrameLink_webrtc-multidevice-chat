@@ -22,8 +22,8 @@
     confidenceBonus: 0.2, // Bonus für höhere Confidence
     currentCameraBonus: 0.1, // Bonus für aktuell aktive Kamera (Anti-Flicker)
 
-    // Safety & Fallback
-    maxSwitchesPerMinute: 5, // Rate limiting
+    // Safety & Fallback (IMPROVED)
+    maxSwitchesPerMinute: 10, // Rate limiting (erhöht für Live-System)
     autoSwitchTimeout: 30000, // ms - Auto-switch timeout
     manualOverrideTime: 10000, // ms - Manuelle Übersteuerung gilt für
 
@@ -607,7 +607,7 @@
   }
 
   /**
-   * Hook in Face Detection Results Function
+   * Hook in Face Detection Results Function (IMPROVED)
    */
   function hookIntoFaceDetectionFunction() {
     // Warte bis Face Detection geladen ist
@@ -615,7 +615,7 @@
       if (window.faceDetectionSystem) {
         clearInterval(checkInterval);
 
-        // Hook in die interne processFaceDetectionResults Funktion
+        // Method 1: Hook processFaceDetectionResults (HAUPT-INTEGRATION)
         if (typeof window.processFaceDetectionResults === "function") {
           const originalFunction = window.processFaceDetectionResults;
           window.processFaceDetectionResults = function (deviceId, results) {
@@ -650,19 +650,62 @@
               }
             }
 
-            logDebug(`🎭 Face Detection Hook - ${deviceId}:`, {
+            logDebug(`🔗 REAL Face Detection Hook - ${deviceId}:`, {
               hasFace,
               confidence,
+              faces: results?.detections?.length || 0,
             });
             processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
 
             return result;
           };
 
-          logDebug("✅ processFaceDetectionResults Hook installiert");
+          logDebug(
+            "✅ processFaceDetectionResults Hook installiert (MAIN INTEGRATION)"
+          );
         }
 
-        // Hook in faceDetectionSystem falls verfügbar
+        // Method 2: Hook notifyFaceDetectionChange (SECONDARY)
+        if (typeof window.notifyFaceDetectionChange === "function") {
+          const originalNotify = window.notifyFaceDetectionChange;
+          window.notifyFaceDetectionChange = function (
+            deviceId,
+            hasFace,
+            confidence
+          ) {
+            logDebug(`🔔 REAL notifyFaceDetectionChange - ${deviceId}:`, {
+              hasFace,
+              confidence,
+            });
+            processFaceDetectionForAutoSwitch(
+              deviceId,
+              hasFace,
+              confidence || (hasFace ? 0.8 : 0)
+            );
+            return originalNotify.call(this, deviceId, hasFace, confidence);
+          };
+          logDebug("✅ notifyFaceDetectionChange Hook installiert (SECONDARY)");
+        } else {
+          // Create notifyFaceDetectionChange wenn nicht vorhanden
+          window.notifyFaceDetectionChange = function (
+            deviceId,
+            hasFace,
+            confidence
+          ) {
+            logDebug(`🔔 NEW notifyFaceDetectionChange - ${deviceId}:`, {
+              hasFace,
+              confidence,
+            });
+            processFaceDetectionForAutoSwitch(
+              deviceId,
+              hasFace,
+              confidence || (hasFace ? 0.8 : 0)
+            );
+          };
+          logDebug("✅ notifyFaceDetectionChange erstellt (NEW)");
+        }
+
+        // Method 3: Hook in faceDetectionSystem falls verfügbar
         if (window.faceDetectionSystem._processFaceDetection) {
           const originalProcessor =
             window.faceDetectionSystem._processFaceDetection;
@@ -689,7 +732,7 @@
             return result;
           };
 
-          logDebug("✅ faceDetectionSystem Hook installiert");
+          logDebug("✅ faceDetectionSystem Hook installiert (TERTIARY)");
         }
       }
     }, 500);
