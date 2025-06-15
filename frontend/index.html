@@ -184,7 +184,7 @@
       /* NEW: Room Video Grid */
       .room-video-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
         gap: 15px;
         margin-bottom: 15px;
       }
@@ -215,7 +215,7 @@
 
       .room-video {
         width: 100%;
-        height: 150px;
+        height: 220px;
         background: linear-gradient(45deg, #1a1a1a 0%, #2d2d2d 100%);
         object-fit: cover;
         display: block;
@@ -457,11 +457,11 @@
         }
 
         .room-video-grid {
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         }
 
         .room-video {
-          height: 120px;
+          height: 180px;
         }
 
         .external-video {
@@ -475,11 +475,11 @@
         }
 
         .room-video-grid {
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: 1fr;
         }
 
         .room-video {
-          height: 100px;
+          height: 160px;
         }
 
         .external-video {
@@ -1027,6 +1027,12 @@
           "No active call",
           false
         );
+
+        // Initialize video stream bridge
+        window.videoStreamBridge.init();
+
+        // Enable room mode by default
+        window.roomLayout.enableRoomMode();
       });
 
       // Initialize room URL when room is created
@@ -1042,6 +1048,55 @@
           }
         }, 100);
       });
+
+      // NEW: Video Stream Bridge - Connect old app.js to new layout
+      window.videoStreamBridge = {
+        localVideo: null,
+        localRoomVideo: null,
+        remoteVideo: null,
+
+        init: function () {
+          this.localVideo = document.getElementById("localVideo");
+          this.localRoomVideo = document.getElementById("localRoomVideo");
+          this.remoteVideo = document.getElementById("remoteVideo");
+
+          console.log("Video Bridge initialized:", {
+            localVideo: !!this.localVideo,
+            localRoomVideo: !!this.localRoomVideo,
+            remoteVideo: !!this.remoteVideo,
+          });
+
+          // Monitor for stream changes on legacy localVideo
+          this.startStreamMonitoring();
+        },
+
+        startStreamMonitoring: function () {
+          if (!this.localVideo) return;
+
+          // Check every 500ms for new streams
+          setInterval(() => {
+            if (this.localVideo.srcObject && this.localRoomVideo) {
+              // Sync local stream to room video
+              if (this.localRoomVideo.srcObject !== this.localVideo.srcObject) {
+                console.log("🔄 Syncing local stream to room video");
+                this.localRoomVideo.srcObject = this.localVideo.srcObject;
+              }
+            }
+          }, 500);
+        },
+
+        // Manual sync function
+        syncStreams: function () {
+          if (
+            this.localVideo &&
+            this.localRoomVideo &&
+            this.localVideo.srcObject
+          ) {
+            console.log("🔄 Manual sync: localVideo → localRoomVideo");
+            this.localRoomVideo.srcObject = this.localVideo.srcObject;
+          }
+        },
+      };
 
       // NEW: Legacy mode toggle (for debugging/fallback)
       window.toggleLegacyMode = function () {
