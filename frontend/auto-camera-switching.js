@@ -526,6 +526,41 @@
         autoCameraSwitching.switchHistory = [];
         autoCameraSwitching.switchCount = 0;
       },
+      // NEUE DEBUG TOOLS
+      testAutoSwitch: (
+        deviceId = "test-device",
+        hasFace = true,
+        confidence = 0.85
+      ) => {
+        console.log(`🧪 Manual Test: Auto-Switch für ${deviceId}`);
+        processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+      },
+      enableVerboseLogging: () => {
+        AUTO_SWITCH_CONFIG.enableLogging = true;
+        console.log("🔊 Verbose Auto-Switch Logging aktiviert");
+      },
+      disableVerboseLogging: () => {
+        AUTO_SWITCH_CONFIG.enableLogging = false;
+        console.log("🔇 Verbose Auto-Switch Logging deaktiviert");
+      },
+      showIntegrationStatus: () => {
+        console.log("🔗 INTEGRATION STATUS:");
+        console.log("  faceDetectionSystem:", !!window.faceDetectionSystem);
+        console.log("  faceDetectionStates:", !!window.faceDetectionStates);
+        console.log("  roomSystem:", !!window.roomSystem);
+        console.log(
+          "  processFaceDetectionResults:",
+          typeof window.processFaceDetectionResults
+        );
+        console.log(
+          "  notifyFaceDetectionChange:",
+          typeof window.notifyFaceDetectionChange
+        );
+      },
+      forceCameraSwitch: (deviceId) => {
+        console.log(`🚀 Force Camera Switch zu: ${deviceId}`);
+        requestAutomaticCameraSwitch(deviceId, 0.9, 1.0);
+      },
     },
 
     // Internal (für Integration)
@@ -537,36 +572,196 @@
   // ========================================
 
   /**
-   * Integriert mit bestehendem Face Detection System
+   * Integriert mit bestehendem Face Detection System (VERBESSERTE VERSION)
    */
   function integrateWithFaceDetection() {
-    // Hook in Face Detection Events
+    logDebug("🔧 Starte Face Detection Integration...");
+
+    // Method 1: Hook Window Events
     window.addEventListener("face-detection-update", (event) => {
+      logDebug("📥 Face Detection Window Event empfangen:", event.detail);
       const { deviceId, hasFace, confidence } = event.detail;
       processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
     });
 
-    // Hook in bestehende Face Detection, falls verfügbar
-    if (
-      window.faceDetectionSystem &&
-      window.faceDetectionSystem._processFaceDetection
-    ) {
-      const originalProcessor =
-        window.faceDetectionSystem._processFaceDetection;
-      window.faceDetectionSystem._processFaceDetection = function (
+    // Method 2: Hook in bestehende processFaceDetectionResults Funktion
+    const attempts = [
+      () => hookIntoFaceDetectionFunction(),
+      () => hookIntoNotifyFaceDetectionChange(),
+      () => setupPollingIntegration(),
+    ];
+
+    attempts.forEach((attempt, index) => {
+      try {
+        attempt();
+        logDebug(`✅ Integration Method ${index + 1} erfolgreich`);
+      } catch (error) {
+        logDebug(
+          `⚠️ Integration Method ${index + 1} fehlgeschlagen:`,
+          error.message
+        );
+      }
+    });
+
+    logDebug("🔗 Face Detection Integration abgeschlossen");
+  }
+
+  /**
+   * Hook in Face Detection Results Function
+   */
+  function hookIntoFaceDetectionFunction() {
+    // Warte bis Face Detection geladen ist
+    const checkInterval = setInterval(() => {
+      if (window.faceDetectionSystem) {
+        clearInterval(checkInterval);
+
+        // Hook in die interne processFaceDetectionResults Funktion
+        if (typeof window.processFaceDetectionResults === "function") {
+          const originalFunction = window.processFaceDetectionResults;
+          window.processFaceDetectionResults = function (deviceId, results) {
+            // Original Function aufrufen
+            const result = originalFunction.call(this, deviceId, results);
+
+            // Extract Face Data für Auto-Switch
+            let hasFace = false;
+            let confidence = 0;
+
+            if (
+              results &&
+              results.detections &&
+              results.detections.length > 0
+            ) {
+              hasFace = true;
+              confidence = 0.8; // Fallback confidence
+
+              // Versuche echte Confidence zu extrahieren
+              const detection = results.detections[0];
+              if (
+                detection.score &&
+                Array.isArray(detection.score) &&
+                detection.score.length > 0
+              ) {
+                confidence = detection.score[0];
+              } else if (
+                detection.score &&
+                typeof detection.score === "number"
+              ) {
+                confidence = detection.score;
+              }
+            }
+
+            logDebug(`🎭 Face Detection Hook - ${deviceId}:`, {
+              hasFace,
+              confidence,
+            });
+            processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+
+            return result;
+          };
+
+          logDebug("✅ processFaceDetectionResults Hook installiert");
+        }
+
+        // Hook in faceDetectionSystem falls verfügbar
+        if (window.faceDetectionSystem._processFaceDetection) {
+          const originalProcessor =
+            window.faceDetectionSystem._processFaceDetection;
+          window.faceDetectionSystem._processFaceDetection = function (
+            deviceId,
+            hasFace,
+            confidence
+          ) {
+            // Original Face Detection
+            const result = originalProcessor.call(
+              this,
+              deviceId,
+              hasFace,
+              confidence
+            );
+
+            // Automatic Camera Switching
+            logDebug(`🎭 faceDetectionSystem Hook - ${deviceId}:`, {
+              hasFace,
+              confidence,
+            });
+            processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+
+            return result;
+          };
+
+          logDebug("✅ faceDetectionSystem Hook installiert");
+        }
+      }
+    }, 500);
+
+    // Timeout nach 10 Sekunden
+    setTimeout(() => clearInterval(checkInterval), 10000);
+  }
+
+  /**
+   * Hook in notifyFaceDetectionChange function
+   */
+  function hookIntoNotifyFaceDetectionChange() {
+    // Globale notifyFaceDetectionChange Funktion abfangen
+    if (typeof window.notifyFaceDetectionChange === "function") {
+      const originalNotify = window.notifyFaceDetectionChange;
+      window.notifyFaceDetectionChange = function (
         deviceId,
         hasFace,
         confidence
       ) {
-        // Original Face Detection
-        originalProcessor.call(this, deviceId, hasFace, confidence);
+        // Original Notification
+        const result = originalNotify.call(this, deviceId, hasFace, confidence);
 
-        // Automatic Camera Switching
+        // Auto-Switch Processing
+        logDebug(`🔔 notifyFaceDetectionChange Hook - ${deviceId}:`, {
+          hasFace,
+          confidence,
+        });
         processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
-      };
-    }
 
-    logDebug("🔗 Face Detection Integration abgeschlossen");
+        return result;
+      };
+
+      logDebug("✅ notifyFaceDetectionChange Hook installiert");
+    }
+  }
+
+  /**
+   * Polling-basierte Integration als Fallback
+   */
+  function setupPollingIntegration() {
+    // Fallback: Polling der Face Detection States
+    setInterval(() => {
+      if (window.faceDetectionStates) {
+        window.faceDetectionStates.forEach((state, deviceId) => {
+          const lastUpdate = state.lastUpdate || 0;
+          const timeSinceUpdate = Date.now() - lastUpdate;
+
+          // Nur verarbeiten wenn kürzlich updated (innerhalb 1 Sekunde)
+          if (timeSinceUpdate < 1000) {
+            const lastProcessed =
+              autoCameraSwitching.faceStates.get(deviceId)?.lastUpdate || 0;
+
+            // Nur verarbeiten wenn noch nicht verarbeitet
+            if (lastUpdate > lastProcessed) {
+              logDebug(`🔄 Polling Face Detection State - ${deviceId}:`, {
+                hasFace: state.hasFace,
+                confidence: state.confidence,
+              });
+
+              processFaceDetectionForAutoSwitch(
+                deviceId,
+                state.hasFace,
+                state.confidence
+              );
+            }
+          }
+        });
+      }
+    }, 200); // Alle 200ms prüfen
+
+    logDebug("✅ Polling Integration aktiviert (Fallback)");
   }
 
   /**
@@ -646,12 +841,57 @@
     logDebug("✅ Automatic Camera Switching System bereit!");
     logDebug("📊 Configuration:", AUTO_SWITCH_CONFIG);
 
+    // Test Integration
+    setTimeout(() => {
+      testIntegration();
+    }, 2000);
+
     // Welcome Message
     console.log("🚀 AUTOMATIC CAMERA SWITCHING SYSTEM ACTIVATED! 🚀");
     console.log("📱 Nutze window.autoCameraSwitching für Kontrolle");
     console.log(
       "🎛️ Verfügbare Commands: enable(), disable(), getStatus(), debug.showStates()"
     );
+  }
+
+  /**
+   * Test Integration nach dem Start
+   */
+  function testIntegration() {
+    logDebug("🧪 Teste Integration...");
+
+    // Test 1: Face Detection System verfügbar?
+    if (window.faceDetectionSystem) {
+      logDebug("✅ window.faceDetectionSystem gefunden");
+    } else {
+      logDebug("⚠️ window.faceDetectionSystem nicht gefunden");
+    }
+
+    // Test 2: Face Detection States verfügbar?
+    if (window.faceDetectionStates) {
+      logDebug(
+        "✅ window.faceDetectionStates gefunden:",
+        window.faceDetectionStates.size + " devices"
+      );
+    } else {
+      logDebug("⚠️ window.faceDetectionStates nicht gefunden");
+    }
+
+    // Test 3: Room System verfügbar?
+    if (window.roomSystem) {
+      logDebug("✅ window.roomSystem gefunden");
+    } else {
+      logDebug("⚠️ window.roomSystem nicht gefunden");
+    }
+
+    // Test 4: Manual Test der Auto-Switch Funktion
+    logDebug("🧪 Teste processFaceDetectionForAutoSwitch...");
+    try {
+      processFaceDetectionForAutoSwitch("test-device", true, 0.85);
+      logDebug("✅ Auto-Switch Funktion läuft");
+    } catch (error) {
+      logDebug("❌ Auto-Switch Funktion Error:", error);
+    }
   }
 
   // Start das System
