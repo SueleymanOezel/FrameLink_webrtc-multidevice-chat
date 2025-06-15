@@ -283,22 +283,48 @@ window.addEventListener("load", () => {
       ],
     });
 
+    // Ensure local stream is available before adding tracks
+    console.log("📹 Prüfe lokalen Stream für PeerConnection...");
+    let localStream = window.localStream;
+
+    if (!localStream || localStream.getTracks().length === 0) {
+      console.log("⏳ Lokaler Stream nicht verfügbar, warte...");
+      try {
+        localStream = await waitForLocalStream();
+      } catch (error) {
+        console.error("❌ Fehler beim Warten auf lokalen Stream:", error);
+      }
+    }
+
     // Add local stream tracks
-    if (window.localStream) {
-      window.localStream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, window.localStream);
-        console.log("➕ Local track hinzugefügt für Room-Gerät:", track.kind);
+    if (localStream && localStream.getTracks().length > 0) {
+      console.log("➕ Füge lokale Tracks zur Room PeerConnection hinzu:");
+      localStream.getTracks().forEach((track) => {
+        peerConnection.addTrack(track, localStream);
+        console.log(`   - ${track.kind} Track hinzugefügt (${track.id})`);
       });
+    } else {
+      console.error("❌ Kein lokaler Stream verfügbar für Room PeerConnection");
     }
 
     // Handle remote stream
     peerConnection.ontrack = (event) => {
       console.log("📹 Room Video Stream empfangen von:", remoteDeviceId);
-      const remoteStream = event.streams[0];
-      roomVideoStreams.set(remoteDeviceId, remoteStream);
+      console.log("📹 Stream Details:", {
+        streams: event.streams.length,
+        tracks: event.streams[0]?.getTracks().length,
+      });
 
-      // Add to UI
-      addRoomVideoToUI(remoteDeviceId, remoteStream);
+      const remoteStream = event.streams[0];
+      if (remoteStream) {
+        roomVideoStreams.set(remoteDeviceId, remoteStream);
+        console.log("💾 Room Stream gespeichert für:", remoteDeviceId);
+
+        // Add to UI
+        addRoomVideoToUI(remoteDeviceId, remoteStream);
+      } else {
+        console.error("❌ Kein Remote Stream in ontrack Event");
+      }
     };
 
     // Handle ICE candidates
@@ -329,6 +355,10 @@ window.addEventListener("load", () => {
 
       if (peerConnection.connectionState === "connected") {
         updateRoomDeviceStatus(remoteDeviceId, "connected");
+        console.log(
+          "🎉 Room Video Connection established with:",
+          remoteDeviceId
+        );
       } else if (peerConnection.connectionState === "failed") {
         console.log("❌ Room connection failed to:", remoteDeviceId);
         removeRoomPeerConnection(remoteDeviceId);
@@ -504,8 +534,17 @@ window.addEventListener("load", () => {
   // Wait for local stream to be available
   function waitForLocalStream() {
     return new Promise((resolve) => {
+      console.log("⏳ Warte auf lokalen Stream...");
+
       const checkStream = () => {
-        if (window.localStream) {
+        console.log("🔍 Prüfe lokalen Stream:", {
+          windowLocalStream: !!window.localStream,
+          hasVideoTracks: window.localStream?.getVideoTracks().length || 0,
+          hasAudioTracks: window.localStream?.getAudioTracks().length || 0,
+        });
+
+        if (window.localStream && window.localStream.getTracks().length > 0) {
+          console.log("✅ Lokaler Stream gefunden!");
           resolve(window.localStream);
         } else {
           setTimeout(checkStream, 500);
