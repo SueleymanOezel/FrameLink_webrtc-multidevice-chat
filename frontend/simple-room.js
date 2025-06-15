@@ -266,17 +266,21 @@ window.addEventListener("load", () => {
           );
           console.log("   - roomDeviceCount:", roomDeviceCount);
 
-          // 🚫 FIX 1: Blockiere externe Anrufe wenn mehrere Geräte im Room sind
+          // 🚫 FIX 1: Blockiere nur Anrufe zwischen Room-Geräten, nicht externe Anrufe
+          // Externe Anrufe (von außerhalb des Rooms) sollen weiterhin funktionieren
+          // Nur Gerät mit Kamera darf externe Anrufe führen
           if (
             roomDeviceCount > 1 &&
             (msg.roomId === "no-room" || !msg.roomId)
           ) {
-            console.log(
-              "🚫 Blockiere externen Anruf - Room hat",
-              roomDeviceCount,
-              "Geräte"
-            );
-            return; // Message wird nicht verarbeitet
+            if (!hasCamera) {
+              console.log(
+                "🚫 Blockiere externen Anruf - kein Kamera-Master in Multi-Device Room"
+              );
+              return;
+            } else {
+              console.log("✅ Externer Anruf erlaubt - hat Kamera-Kontrolle");
+            }
           }
 
           // REGEL 1: Nicht im Room → Normal verarbeiten
