@@ -44,32 +44,82 @@ window.addEventListener("load", () => {
   function initRoomVideoSystem() {
     console.log("🔧 Room Video System initialisiert");
 
-    // Hook into existing WebSocket
-    if (window.socket) {
-      hookIntoWebSocket();
-    } else {
-      console.log("⏳ Warte auf WebSocket...");
+    // Check multiple possible WebSocket references
+    const socket =
+      window.socket ||
+      window.ws ||
+      (window.connectWebSocket && window.connectWebSocket.socket);
+
+    console.log("🔍 WebSocket Check:", {
+      windowSocket: !!window.socket,
+      globalSocket: !!socket,
+      socketReadyState: socket?.readyState,
+      WebSocketOPEN: WebSocket.OPEN,
+    });
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      console.log("✅ WebSocket gefunden und verbunden");
+      hookIntoWebSocket(socket);
+    } else if (socket) {
+      console.log("⏳ WebSocket gefunden aber nicht connected, warte...");
       setTimeout(initRoomVideoSystem, 1000);
+    } else {
+      console.log("❌ Kein WebSocket gefunden, versuche global zu finden...");
+      findWebSocketGlobally();
     }
   }
+
+  // Fallback: Global nach WebSocket suchen
+  function findWebSocketGlobally() {
+    console.log("🔍 Suche WebSocket global...");
+
+    // Warte auf app.js load
+    setTimeout(() => {
+      if (window.socket) {
+        console.log("✅ WebSocket nach Wartezeit gefunden");
+        hookIntoWebSocket(window.socket);
+      } else {
+        console.log("❌ WebSocket immer noch nicht gefunden, retry...");
+        if (findWebSocketGlobally.retries < 10) {
+          findWebSocketGlobally.retries++;
+          setTimeout(findWebSocketGlobally, 2000);
+        } else {
+          console.error("❌ WebSocket nicht gefunden nach 10 Versuchen");
+        }
+      }
+    }, 2000);
+  }
+  findWebSocketGlobally.retries = 0;
 
   // ================================================================
   // WEBSOCKET INTEGRATION - Erweitere existing Message Handler
   // ================================================================
 
-  function hookIntoWebSocket() {
-    if (!window.socket) return;
+  function hookIntoWebSocket(socket) {
+    if (!socket) {
+      console.error("❌ Kein Socket übergeben an hookIntoWebSocket");
+      return;
+    }
 
     console.log("🔗 Hooking into WebSocket für Room Video Streaming");
+    console.log(
+      "Socket State:",
+      socket.readyState,
+      "WebSocket.OPEN:",
+      WebSocket.OPEN
+    );
+
+    // Store socket reference globally
+    window.roomVideoSocket = socket;
 
     // Store original onmessage if it exists
-    const existingHandler = window.socket.onmessage;
+    const existingHandler = socket.onmessage;
 
     // Enhanced message handler
-    window.socket.onmessage = async (event) => {
+    socket.onmessage = async (event) => {
       // First, call existing handler
       if (existingHandler) {
-        existingHandler.call(window.socket, event);
+        existingHandler.call(socket, event);
       }
 
       // Then handle room video messages
@@ -77,6 +127,14 @@ window.addEventListener("load", () => {
     };
 
     console.log("✅ WebSocket Hook installiert");
+
+    // Test room video system by announcing peer
+    setTimeout(() => {
+      if (isRoomVideoActive) {
+        console.log("🎥 Teste Room Video System...");
+        announceRoomPeer();
+      }
+    }, 2000);
   }
 
   // ================================================================
@@ -156,9 +214,12 @@ window.addEventListener("load", () => {
 
     // Handle ICE candidates
     peerConnection.onicecandidate = (event) => {
-      if (event.candidate && window.socket?.readyState === WebSocket.OPEN) {
+      if (
+        event.candidate &&
+        window.roomVideoSocket?.readyState === WebSocket.OPEN
+      ) {
         console.log("📤 Sende Room ICE Candidate zu:", remoteDeviceId);
-        window.socket.send(
+        window.roomVideoSocket.send(
           JSON.stringify({
             type: "room-video-ice",
             roomId: currentRoomId,
@@ -210,7 +271,7 @@ window.addEventListener("load", () => {
       await peerConnection.setLocalDescription(offer);
 
       // Send offer via WebSocket
-      window.socket.send(
+      window.roomVideoSocket.send(
         JSON.stringify({
           type: "room-video-offer",
           roomId: currentRoomId,
@@ -247,7 +308,7 @@ window.addEventListener("load", () => {
       await peerConnection.setLocalDescription(answer);
 
       // Send answer
-      window.socket.send(
+      window.roomVideoSocket.send(
         JSON.stringify({
           type: "room-video-answer",
           roomId: currentRoomId,
@@ -383,6 +444,20 @@ window.addEventListener("load", () => {
   // INTEGRATION WITH EXISTING MULTI-DEVICE SYSTEM
   // ================================================================
 
+  // Announce this device as available for room video
+  function announceRoomPeer() {
+    if (window.roomVideoSocket?.readyState === WebSocket.OPEN) {
+      console.log("📢 Announcing room peer:", localDeviceId);
+      window.roomVideoSocket.send(
+        JSON.stringify({
+          type: "room-peer-joined",
+          roomId: currentRoomId,
+          deviceId: localDeviceId,
+        })
+      );
+    }
+  }
+
   // Hook into existing room join process
   function enhanceRoomJoinProcess() {
     // Monitor for room join events
@@ -394,16 +469,8 @@ window.addEventListener("load", () => {
           isRoomVideoActive = true;
 
           // Announce this device to room for video connections
-          if (window.socket?.readyState === WebSocket.OPEN) {
-            window.socket.send(
-              JSON.stringify({
-                type: "room-peer-joined",
-                roomId: currentRoomId,
-                deviceId: localDeviceId,
-              })
-            );
-          }
-        }, 1000);
+          announceRoomPeer();
+        }, 2000);
       });
     }
   }
