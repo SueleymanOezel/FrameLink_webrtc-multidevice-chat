@@ -287,12 +287,29 @@ window.addEventListener("load", () => {
     console.log("📹 Prüfe lokalen Stream für PeerConnection...");
     let localStream = window.localStream;
 
+    // Try alternative methods to get local stream
     if (!localStream || localStream.getTracks().length === 0) {
-      console.log("⏳ Lokaler Stream nicht verfügbar, warte...");
-      try {
-        localStream = await waitForLocalStream();
-      } catch (error) {
-        console.error("❌ Fehler beim Warten auf lokalen Stream:", error);
+      console.log(
+        "⏳ window.localStream nicht verfügbar, versuche Video-Elemente..."
+      );
+
+      // Try to get stream from video elements
+      const localVideo = document.getElementById("localVideo");
+      const localRoomVideo = document.getElementById("localRoomVideo");
+
+      if (localVideo && localVideo.srcObject) {
+        localStream = localVideo.srcObject;
+        console.log("✅ Stream aus localVideo gefunden");
+      } else if (localRoomVideo && localRoomVideo.srcObject) {
+        localStream = localRoomVideo.srcObject;
+        console.log("✅ Stream aus localRoomVideo gefunden");
+      } else {
+        console.log("⏳ Kein Stream in Video-Elementen, warte auf async...");
+        try {
+          localStream = await waitForLocalStream();
+        } catch (error) {
+          console.error("❌ Fehler beim Warten auf lokalen Stream:", error);
+        }
       }
     }
 
@@ -537,18 +554,63 @@ window.addEventListener("load", () => {
       console.log("⏳ Warte auf lokalen Stream...");
 
       const checkStream = () => {
-        console.log("🔍 Prüfe lokalen Stream:", {
+        // Method 1: Check window.localStream
+        if (window.localStream && window.localStream.getTracks().length > 0) {
+          console.log("✅ Lokaler Stream aus window.localStream gefunden!");
+          resolve(window.localStream);
+          return;
+        }
+
+        // Method 2: Check video elements
+        const localVideo = document.getElementById("localVideo");
+        const localRoomVideo = document.getElementById("localRoomVideo");
+
+        let videoElement = null;
+        if (localVideo && localVideo.srcObject) {
+          videoElement = localVideo;
+        } else if (localRoomVideo && localRoomVideo.srcObject) {
+          videoElement = localRoomVideo;
+        }
+
+        if (videoElement && videoElement.srcObject) {
+          console.log(
+            "✅ Lokaler Stream aus Video-Element gefunden:",
+            videoElement.id
+          );
+          resolve(videoElement.srcObject);
+          return;
+        }
+
+        // Method 3: Try to get stream from getUserMedia
+        console.log("🔍 Prüfe Video-Elemente und window.localStream:", {
           windowLocalStream: !!window.localStream,
+          localVideoSrc: !!localVideo?.srcObject,
+          localRoomVideoSrc: !!localRoomVideo?.srcObject,
           hasVideoTracks: window.localStream?.getVideoTracks().length || 0,
           hasAudioTracks: window.localStream?.getAudioTracks().length || 0,
         });
 
-        if (window.localStream && window.localStream.getTracks().length > 0) {
-          console.log("✅ Lokaler Stream gefunden!");
-          resolve(window.localStream);
-        } else {
-          setTimeout(checkStream, 500);
+        // Method 4: Create new stream if nothing else works
+        if (checkStream.attempts > 20) {
+          console.log("🚨 Fallback: Erstelle neuen MediaStream...");
+          navigator.mediaDevices
+            .getUserMedia({
+              video: true,
+              audio: true,
+            })
+            .then((stream) => {
+              console.log("✅ Neuer Stream erstellt als Fallback");
+              resolve(stream);
+            })
+            .catch((err) => {
+              console.error("❌ Fallback Stream creation failed:", err);
+              setTimeout(checkStream, 1000);
+            });
+          return;
         }
+
+        checkStream.attempts = (checkStream.attempts || 0) + 1;
+        setTimeout(checkStream, 500);
       };
       checkStream();
     });
