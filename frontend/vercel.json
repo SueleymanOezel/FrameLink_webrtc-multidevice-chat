@@ -5,6 +5,7 @@
     { "src": "app.js", "use": "@vercel/static" },
     { "src": "debug.html", "use": "@vercel/static" },
     { "src": "simple-room.js", "use": "@vercel/static" },
+    { "src": "room-video-streaming.js", "use": "@vercel/static" },
     { "src": "models/*", "use": "@vercel/static" }
   ],
   "routes": [
