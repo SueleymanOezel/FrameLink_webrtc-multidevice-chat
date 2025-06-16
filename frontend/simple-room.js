@@ -1,7 +1,8 @@
 // simple-room.js - Multi-Device Room System (LOGIC ONLY)
 // ================================================
 // Funktionen: Multi-Device Setup, Kamera-Switching, Externe Calls
-// Status: SAUBERE TRENNUNG - Kein HTML Creation mehr!
+// Status: FIXED - originalOnMessage Error behoben
+// ================================================
 
 window.addEventListener("load", () => {
   // ================================================
@@ -51,6 +52,33 @@ window.addEventListener("load", () => {
   let roomDeviceCount = 1; // Anzahl Geräte im Room
   let callActiveWithExternal = false; // Läuft ein externer Call?
   let amCurrentCameraMaster = false; // Bin ich der Camera-Master?
+
+  // ================================================
+  // MESSAGE DEDUPLICATION - Anti-Spam
+  // ================================================
+
+  const messageCache = new Map();
+  const CACHE_LIFETIME = 2000; // 2 Sekunden
+
+  function isDuplicateMessage(msg) {
+    const key = `${msg.type}_${msg.deviceId || msg.targetDevice}_${Date.now().toString().slice(-3)}`;
+    const now = Date.now();
+
+    // Cleanup old entries
+    for (let [cacheKey, timestamp] of messageCache.entries()) {
+      if (now - timestamp > CACHE_LIFETIME) {
+        messageCache.delete(cacheKey);
+      }
+    }
+
+    // Check if duplicate
+    if (messageCache.has(key)) {
+      return true;
+    }
+
+    messageCache.set(key, now);
+    return false;
+  }
 
   // ================================================
   // CALL DETECTION - Prüfe bestehende Calls
@@ -164,6 +192,7 @@ window.addEventListener("load", () => {
           type: "camera-request",
           roomId: roomId,
           deviceId: deviceId,
+          fromDeviceId: deviceId, // FIXED: Add fromDeviceId
         })
       );
     });
@@ -207,22 +236,27 @@ window.addEventListener("load", () => {
     // Original WebSocket Handler speichern
     const originalOnMessage = socket.onmessage;
     console.log("Original onmessage gefunden:", typeof originalOnMessage);
-    console.log(
-      "Original onmessage function:",
-      originalOnMessage.toString().slice(0, 100) + "..."
-    );
 
     // Neuer Message Handler mit Room-Logic
     socket.onmessage = async (event) => {
-      console.log("📨 Message empfangen in Room-Handler");
-
       // Blob zu Text konvertieren falls nötig
       let data = event.data;
       if (data instanceof Blob) data = await data.text();
 
       try {
         const msg = JSON.parse(data);
-        console.log("📨 Parsed message:", msg.type, msg.roomId || "no-room");
+
+        // NEW: Skip duplicate messages
+        if (msg.type === "camera-request" && isDuplicateMessage(msg)) {
+          return; // Silent skip
+        }
+
+        // Nur wichtige Messages loggen
+        if (msg.type === "camera-request") {
+          console.log(
+            `📨 camera-request: target=${msg.deviceId}, from=${msg.fromDeviceId}`
+          );
+        }
 
         // ================================================
         // ROOM MESSAGE PROCESSING
@@ -230,11 +264,8 @@ window.addEventListener("load", () => {
 
         // Room-spezifische Messages verarbeiten
         if (msg.roomId === roomId && inRoom && isLocalRoom) {
-          console.log("🏠 Room message verarbeiten:", msg.type);
-
           switch (msg.type) {
             case "camera-request":
-              console.log("📹 Camera request verarbeiten");
               handleCameraSwitch(msg);
               return;
 
@@ -268,14 +299,6 @@ window.addEventListener("load", () => {
           msg.type === "ice"
         ) {
           console.log("🔍 WebRTC Message:", msg.type);
-          console.log("   - inRoom:", inRoom, "isLocalRoom:", isLocalRoom);
-          console.log(
-            "   - hasCamera:",
-            hasCamera,
-            "callActiveWithExternal:",
-            callActiveWithExternal
-          );
-          console.log("   - roomDeviceCount:", roomDeviceCount);
 
           // 🚫 FIX 1: Blockiere nur Anrufe zwischen Room-Geräten, nicht externe Anrufe
           // Externe Anrufe (von außerhalb des Rooms) sollen weiterhin funktionieren
@@ -343,6 +366,7 @@ window.addEventListener("load", () => {
                 type: "camera-request",
                 roomId: roomId,
                 deviceId: deviceId,
+                fromDeviceId: deviceId,
               })
             );
           }
@@ -351,20 +375,8 @@ window.addEventListener("load", () => {
           const shouldProcessWebRTC =
             hasCamera || !callActiveWithExternal || roomDeviceCount === 1;
 
-          console.log("   - shouldProcessWebRTC:", shouldProcessWebRTC);
-          console.log(
-            "   - Grund: hasCamera(" +
-              hasCamera +
-              ") || !callActiveWithExternal(" +
-              !callActiveWithExternal +
-              ") || soloDevice(" +
-              (roomDeviceCount === 1) +
-              ")"
-          );
-
           if (shouldProcessWebRTC) {
             console.log("✅ WebRTC Message wird verarbeitet:", msg.type);
-            console.log("📞 Calling originalOnMessage...");
             if (originalOnMessage) originalOnMessage.call(socket, event);
 
             // Call Status aktualisieren
@@ -392,11 +404,9 @@ window.addEventListener("load", () => {
         // ================================================
 
         // Alle anderen Messages an Original Handler weiterleiten
-        console.log("📨 Andere Message weitergeleitet:", msg.type);
         if (originalOnMessage) originalOnMessage.call(socket, event);
       } catch (e) {
         // Parse-Fehler: Message direkt weiterleiten
-        console.log("📨 Parse Error - direkt weiterleiten");
         if (originalOnMessage) originalOnMessage.call(socket, event);
       }
     };
@@ -445,11 +455,17 @@ window.addEventListener("load", () => {
     }
   }
 
-  // Kamera-Wechsel zwischen Geräten verarbeiten
+  // Kamera-Wechsel zwischen Geräten verarbeiten - IMPROVED
   function handleCameraSwitch(msg) {
     const wasMyCamera = hasCamera;
+    const targetDeviceId = msg.deviceId;
+    const myDeviceId = deviceId; // My local device ID
 
-    if (msg.deviceId === deviceId) {
+    console.log(
+      `📹 Camera switch request: target=${targetDeviceId}, my=${myDeviceId}`
+    );
+
+    if (targetDeviceId === myDeviceId) {
       // ICH bekomme die Kamera-Kontrolle
       hasCamera = true;
       amCurrentCameraMaster = callActiveWithExternal;
@@ -459,7 +475,6 @@ window.addEventListener("load", () => {
         window.localStream.getVideoTracks().forEach((t) => (t.enabled = true));
       }
 
-      // 🔧 FIX 2: Verbesserte UI Updates für Kamera-Switching
       updateCameraStatus("📹 KAMERA AKTIV", "green");
       if (window.localVideo)
         window.localVideo.style.border = "4px solid #4caf50";
@@ -478,6 +493,11 @@ window.addEventListener("load", () => {
         "callActive:",
         callActiveWithExternal
       );
+
+      // Update Auto-Switch current device
+      if (window.autoCameraSwitching) {
+        window.autoCameraSwitching.currentControllingDevice = myDeviceId;
+      }
 
       // Re-Check für aktiven Call falls nicht erkannt
       if (!callActiveWithExternal) {
@@ -501,8 +521,7 @@ window.addEventListener("load", () => {
         window.localStream.getVideoTracks().forEach((t) => (t.enabled = false));
       }
 
-      // 🔧 FIX 2: Verbesserte UI Updates für Kamera-Switching
-      updateCameraStatus(`⏸️ ${msg.deviceId} has camera`, "gray");
+      updateCameraStatus(`⏸️ ${targetDeviceId} has camera`, "gray");
       if (window.localVideo) window.localVideo.style.border = "2px solid #ccc";
 
       // Button Status aktualisieren
@@ -513,12 +532,17 @@ window.addEventListener("load", () => {
         takeCameraBtn.disabled = false;
       }
 
-      console.log("⏸️ Kamera abgegeben an:", msg.deviceId);
+      console.log("⏸️ Kamera abgegeben an:", targetDeviceId);
+
+      // Update Auto-Switch current device
+      if (window.autoCameraSwitching) {
+        window.autoCameraSwitching.currentControllingDevice = targetDeviceId;
+      }
 
       // Wenn ich hatte Call-Master Role → Übergebe an anderes Gerät
       if (callActiveWithExternal && wasMyCamera) {
         console.log("🔄 Übergebe aktiven Call an anderes Gerät");
-        handoverCallToDevice(msg.deviceId);
+        handoverCallToDevice(targetDeviceId);
       }
     }
   }
