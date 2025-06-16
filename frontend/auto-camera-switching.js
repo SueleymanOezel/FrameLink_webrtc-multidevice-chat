@@ -14,9 +14,9 @@
 
   const AUTO_SWITCH_CONFIG = {
     // Hysterese Settings (verhindert schnelles Hin- und Herschalten)
-    hysteresisDelay: 2000, // ms - Mindestabstand zwischen Switches
-    faceDetectionThreshold: 0.6, // Minimum confidence für Switch
-    stabilityPeriod: 1500, // ms - Gesicht muss stabil erkannt werden
+    hysteresisDelay: 1000, // ms - Mindestabstand zwischen Switches
+    faceDetectionThreshold: 0.7, // Minimum confidence für Switch
+    stabilityPeriod: 800, // ms - Gesicht muss stabil erkannt werden
 
     // Priority System
     confidenceBonus: 0.2, // Bonus für höhere Confidence

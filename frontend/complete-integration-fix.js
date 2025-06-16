@@ -218,7 +218,7 @@ function initializeCompleteIntegrationFix() {
 
     // Prevent rapid switching
     const now = Date.now();
-    if (window._lastCameraSwitch && now - window._lastCameraSwitch < 2000) {
+    if (window._lastCameraSwitch && now - window._lastCameraSwitch < 1000) {
       console.log("⏭️ Camera switch rate limited");
       return false;
     }
