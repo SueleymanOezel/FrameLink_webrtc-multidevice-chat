@@ -41,6 +41,7 @@ function connectWebSocket() {
   showStatus("Verbinde mit Server...", "blue");
 
   socket = new WebSocket(wsUrl);
+  window.socket = socket;
 
   socket.onopen = () => {
     showStatus("Mit Server verbunden!", "green");
@@ -55,6 +56,7 @@ function connectWebSocket() {
   socket.onclose = () => {
     showStatus("Verbindung getrennt", "orange");
     startBtn.disabled = true;
+    window.socket = null;
     // Automatisch neu verbinden nach 3 Sekunden
     setTimeout(connectWebSocket, 3000);
   };
