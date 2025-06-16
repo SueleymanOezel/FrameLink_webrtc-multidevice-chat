@@ -216,17 +216,22 @@ function initializeCompleteIntegrationFix() {
   function executeDirectCameraSwitch(targetDeviceId, metadata = {}) {
     console.log(`🔄 DIRECT Camera Switch to: ${targetDeviceId}`, metadata);
 
-    // Prevent rapid switching
+    // Prevent rapid switching UND prevent switching to same device
     const now = Date.now();
-    if (window._lastCameraSwitch && now - window._lastCameraSwitch < 1000) {
-      console.log("⏭️ Camera switch rate limited");
-      return false;
+    if (window._lastCameraSwitch && now - window._lastCameraSwitch < 1500) {
+      return false; // Kein Log - silent fail
     }
+
+    // NEW: Prevent switching to device that already has camera
+    if (
+      window.autoCameraSwitching?.currentControllingDevice === targetDeviceId
+    ) {
+      return false; // Already controlling - silent fail
+    }
+
     window._lastCameraSwitch = now;
 
-    let success = false;
-
-    // Method 1: WebSocket camera-request (PRIMARY)
+    // Nur WebSocket Method verwenden für Auto-Switches
     try {
       if (
         window.socket &&
@@ -236,7 +241,8 @@ function initializeCompleteIntegrationFix() {
         const message = {
           type: "camera-request",
           roomId: window.multiDeviceRoom.roomId,
-          deviceId: targetDeviceId,
+          deviceId: targetDeviceId, // TARGET device
+          fromDeviceId: window.multiDeviceRoom.deviceId, // REQUESTING device
           automatic: true,
           reason: "face-detection",
           confidence: metadata.confidence || 0.8,
@@ -244,49 +250,14 @@ function initializeCompleteIntegrationFix() {
         };
 
         window.socket.send(JSON.stringify(message));
-        success = true;
         console.log("✅ Camera switch via WebSocket:", targetDeviceId);
+        return true;
       }
     } catch (error) {
       console.error("❌ WebSocket camera switch failed:", error);
     }
 
-    // Method 2: Direct DOM button click (SECONDARY)
-    if (!success) {
-      try {
-        const takeCameraBtn = document.getElementById("take-camera");
-        if (takeCameraBtn && !takeCameraBtn.disabled) {
-          takeCameraBtn.click();
-          success = true;
-          console.log("✅ Camera switch via DOM click");
-        }
-      } catch (error) {
-        console.error("❌ DOM camera switch failed:", error);
-      }
-    }
-
-    // Method 3: Direct simple-room.js integration (TERTIARY)
-    if (!success) {
-      try {
-        if (
-          window.multiDeviceRoom &&
-          typeof window.handleCameraSwitch === "function"
-        ) {
-          window.handleCameraSwitch({ deviceId: targetDeviceId });
-          success = true;
-          console.log("✅ Camera switch via direct handler");
-        }
-      } catch (error) {
-        console.error("❌ Direct handler camera switch failed:", error);
-      }
-    }
-
-    // Visual feedback
-    if (success) {
-      showCameraSwitchNotification(targetDeviceId, metadata);
-    }
-
-    return success;
+    return false;
   }
 
   // ================================================================

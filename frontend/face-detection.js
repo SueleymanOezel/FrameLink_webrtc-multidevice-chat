@@ -208,13 +208,30 @@ window.addEventListener("load", () => {
 
   // Device ID aus Video Element extrahieren
   function extractDeviceIdFromVideo(videoElement) {
-    // room-video-stream-{deviceId} oder localRoomVideo
-    if (videoElement.id === "localRoomVideo") {
-      return videoElement.dataset.deviceId || "local";
+    // Priority 1: Explicit dataset deviceId
+    if (videoElement.dataset.deviceId) {
+      return videoElement.dataset.deviceId;
     }
 
+    // Priority 2: room-video-stream-{deviceId}
     const match = videoElement.id.match(/room-video-stream-(.+)/);
-    return match ? match[1] : null;
+    if (match) {
+      return match[1];
+    }
+
+    // Priority 3: localRoomVideo - but get REAL device ID, not "local"
+    if (videoElement.id === "localRoomVideo") {
+      // Get actual device ID from multiDeviceRoom
+      const actualDeviceId = window.multiDeviceRoom?.deviceId;
+      if (actualDeviceId) {
+        // Set it on the element for future use
+        videoElement.dataset.deviceId = actualDeviceId;
+        return actualDeviceId;
+      }
+      return "local"; // fallback
+    }
+
+    return null;
   }
 
   // Canvas für Face Detection erstellen
