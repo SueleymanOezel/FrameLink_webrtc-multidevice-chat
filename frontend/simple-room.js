@@ -17,6 +17,7 @@ window.addEventListener("load", () => {
   if (!roomId) {
     roomId = "room-" + Math.random().toString(36).substr(2, 8);
     window.history.replaceState({}, "", "?room=" + roomId);
+    window.roomId = roomId;
     isLocalRoom = true;
 
     // Room URL in existing HTML input setzen (falls vorhanden)
@@ -38,8 +39,9 @@ window.addEventListener("load", () => {
 
   // Device ID in HTML setzen (falls Element existiert)
   const deviceIdElement = document.getElementById("device-id");
-  const deviceId = Math.random().toString(36).substr(2, 6);
+  const deviceId = window.deviceId || Math.random().toString(36).substr(2, 6);
   window.deviceId = deviceId;
+  console.log("🆔 deviceId:", deviceId);
   if (deviceIdElement) {
     deviceIdElement.textContent = deviceId;
   }
