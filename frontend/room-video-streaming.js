@@ -315,6 +315,8 @@ window.addEventListener("load", () => {
 
     // Add local stream tracks
     if (localStream && localStream.getTracks().length > 0) {
+      assignLocalVideoDeviceId();
+
       console.log("➕ Füge lokale Tracks zur Room PeerConnection hinzu:");
       localStream.getTracks().forEach((track) => {
         peerConnection.addTrack(track, localStream);

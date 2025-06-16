@@ -39,6 +39,7 @@ window.addEventListener("load", () => {
   // Device ID in HTML setzen (falls Element existiert)
   const deviceIdElement = document.getElementById("device-id");
   const deviceId = Math.random().toString(36).substr(2, 6);
+  window.deviceId = deviceId;
   if (deviceIdElement) {
     deviceIdElement.textContent = deviceId;
   }
