@@ -27,6 +27,7 @@ window.addEventListener("load", () => {
       localDeviceId = window.multiDeviceRoom.deviceId;
       currentRoomId = window.multiDeviceRoom.roomId;
       console.log("✅ Room System erkannt:", { localDeviceId, currentRoomId });
+      window.roomSystem = roomSystem;
       integrateWithSimpleRoom(); // Geändert von initRoomVideoSystem()
     } else {
       console.log("⏳ Warte auf Room System...");
