@@ -658,9 +658,23 @@ window.addEventListener("load", () => {
     }
   }
 
+  // Neue Hilfsfunktion einfügen
+  function assignLocalVideoDeviceId() {
+    const localVideo = document.getElementById("localVideo");
+    const localRoomVideo = document.getElementById("localRoomVideo");
+
+    if (localVideo && !localVideo.dataset.deviceId) {
+      localVideo.dataset.deviceId = localDeviceId;
+      console.log("📌 deviceId gesetzt auf localVideo:", localDeviceId);
+    }
+    if (localRoomVideo && !localRoomVideo.dataset.deviceId) {
+      localRoomVideo.dataset.deviceId = localDeviceId;
+      console.log("📌 deviceId gesetzt auf localRoomVideo:", localDeviceId);
+    }
+  }
+
   // Hook into existing room join process
   function enhanceRoomJoinProcess() {
-    // Monitor for room join events
     const originalJoinBtn = document.getElementById("join-room");
     if (originalJoinBtn) {
       originalJoinBtn.addEventListener("click", () => {
@@ -670,6 +684,9 @@ window.addEventListener("load", () => {
 
           // Announce this device to room for video connections
           announceRoomPeer();
+
+          // deviceId in lokale Videoelemente eintragen
+          assignLocalVideoDeviceId();
         }, 2000);
       });
     }
