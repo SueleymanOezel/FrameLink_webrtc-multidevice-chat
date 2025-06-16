@@ -2,7 +2,8 @@
 // ================================================================
 // Funktionen: MediaPipe Face Detection für alle Room Video Streams
 // Integration: Erweitert bestehende Architektur OHNE Änderungen
-// Status: NEU - Phase 2.2 Implementation
+// Status: PERFORMANCE OPTIMIERT - Reduzierte CPU & Logs
+// ================================================================
 
 window.addEventListener("load", () => {
   console.log("🎭 Face Detection Module wird geladen...");
@@ -22,33 +23,33 @@ window.addEventListener("load", () => {
     minSuppressionThreshold: 0.3,
   };
 
-  // Performance Settings
+  // Performance Settings - OPTIMIERT
   const PERFORMANCE_SETTINGS = {
-    detectionInterval: 200, // ms zwischen face detection runs
-    maxConcurrentDetections: 3, // max gleichzeitige detections
-    canvasWidth: 320, // reduzierte Auflösung für performance
-    canvasHeight: 240,
+    detectionInterval: 400, // war 200ms - 50% weniger CPU Load
+    maxConcurrentDetections: 2, // war 3 - weniger Memory Usage
+    canvasWidth: 240, // war 320 - 25% weniger Processing
+    canvasHeight: 180, // war 240 - 25% weniger Processing
   };
 
-  // Logging Settings
+  // Logging Settings - MASSIV REDUZIERT
   const LOGGING_CONFIG = {
-    debugMode: false, // DEBUG-Logs nur wenn true
-    logOnlyChanges: true, // Nur bei State-Änderungen loggen
-    maxLogFrequency: 2000, // Max alle 2 Sekunden
-    verboseProcessing: false, // Verbose Processing-Logs deaktiviert
+    debugMode: false,
+    logOnlyChanges: true,
+    maxLogFrequency: 5000, // war 2000ms - 60% weniger Logs
+    verboseProcessing: false,
   };
 
   // ================================================================
   // STATE MANAGEMENT - Face Detection
   // ================================================================
 
-  let faceDetectionStates = new Map(); // deviceId -> { hasface, confidence, lastUpdate }
-  let detectionCanvases = new Map(); // deviceId -> canvas element
-  let detectionContexts = new Map(); // deviceId -> canvas context
-  let canvasToDeviceMap = new Map(); // canvas-id -> deviceId (FIX für MediaPipe)
-  let activeDetections = 0; // counter für concurrent detections
-  let processingQueue = new Map(); // deviceId -> processing timestamp
-  let lastLoggedStates = new Map(); // deviceId -> last logged state (für anti-spam)
+  let faceDetectionStates = new Map();
+  let detectionCanvases = new Map();
+  let detectionContexts = new Map();
+  let canvasToDeviceMap = new Map();
+  let activeDetections = 0;
+  let processingQueue = new Map();
+  let lastLoggedStates = new Map(); // Anti-Spam Cache
 
   // ================================================================
   // MEDIAPIPE INITIALIZATION
@@ -84,7 +85,6 @@ window.addEventListener("load", () => {
       setTimeout(integrateWithRoomSystem, 1000);
     } catch (error) {
       console.error("❌ Face Detection Initialisierung fehlgeschlagen:", error);
-      // Fallback: Deaktiviere face detection
       isInitialized = false;
     }
   }
@@ -180,17 +180,11 @@ window.addEventListener("load", () => {
   // Face Detection für ein Video-Element einrichten
   async function setupFaceDetectionForVideo(videoElement) {
     if (!isInitialized || !videoElement || !videoElement.srcObject) {
-      console.log("⏸️ Face Detection Setup übersprungen:", {
-        initialized: isInitialized,
-        hasElement: !!videoElement,
-        hasStream: !!videoElement?.srcObject,
-      });
       return;
     }
 
     const deviceId = extractDeviceIdFromVideo(videoElement);
     if (!deviceId) {
-      console.log("❌ Device ID nicht extrahierbar von:", videoElement.id);
       return;
     }
 
@@ -229,7 +223,7 @@ window.addEventListener("load", () => {
       const canvas = document.createElement("canvas");
       canvas.width = PERFORMANCE_SETTINGS.canvasWidth;
       canvas.height = PERFORMANCE_SETTINGS.canvasHeight;
-      canvas.style.display = "none"; // unsichtbar
+      canvas.style.display = "none";
       canvas.id = `face-detection-canvas-${deviceId}`;
 
       // WICHTIG: Device-ID für MediaPipe-Mapping speichern
@@ -243,7 +237,7 @@ window.addEventListener("load", () => {
 
       detectionCanvases.set(deviceId, canvas);
       detectionContexts.set(deviceId, context);
-      canvasToDeviceMap.set(canvas.id, deviceId); // FIX: ID-basiertes Mapping
+      canvasToDeviceMap.set(canvas.id, deviceId);
 
       console.log("🖼️ Detection Canvas erstellt für:", deviceId);
       return canvas;
@@ -254,38 +248,50 @@ window.addEventListener("load", () => {
   }
 
   // ================================================================
-  // FACE DETECTION PROCESSING LOOP
+  // FACE DETECTION PROCESSING LOOP - PERFORMANCE OPTIMIERT
   // ================================================================
 
-  // Face Detection Loop für ein Device starten
+  // Face Detection Loop für ein Device starten - OPTIMIERT
   function startFaceDetectionLoop(deviceId) {
     const processFrame = async () => {
       try {
-        // Performance Check: Nicht zu viele gleichzeitige Detections
-        if (activeDetections >= PERFORMANCE_SETTINGS.maxConcurrentDetections) {
-          setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval * 2);
+        // Performance Check: Nicht zu viele gleichzeitige Detections + Browser Tab Check
+        if (
+          activeDetections >= PERFORMANCE_SETTINGS.maxConcurrentDetections ||
+          document.hidden
+        ) {
+          // Browser tab nicht aktiv
+          setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval * 3);
           return;
         }
 
-        // State und Elemente prüfen
+        // Weniger häufige State Checks - nur jeder 5. Frame
+        if (processFrame._checkCount % 5 === 0) {
+          const state = faceDetectionStates.get(deviceId);
+          const canvas = detectionCanvases.get(deviceId);
+          const context = detectionContexts.get(deviceId);
+
+          if (!state || !canvas || !context || !state.videoElement) {
+            return; // Stop ohne Log
+          }
+
+          // Video bereit prüfen
+          const video = state.videoElement;
+          if (
+            video.readyState !== video.HAVE_ENOUGH_DATA ||
+            video.videoWidth === 0
+          ) {
+            setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval);
+            return;
+          }
+        }
+        processFrame._checkCount = (processFrame._checkCount || 0) + 1;
+
+        // Hole State für aktuellen Frame
         const state = faceDetectionStates.get(deviceId);
         const canvas = detectionCanvases.get(deviceId);
         const context = detectionContexts.get(deviceId);
-
-        if (!state || !canvas || !context || !state.videoElement) {
-          console.log("⏸️ Face Detection gestoppt für:", deviceId);
-          return;
-        }
-
-        // Video bereit prüfen
         const video = state.videoElement;
-        if (
-          video.readyState !== video.HAVE_ENOUGH_DATA ||
-          video.videoWidth === 0
-        ) {
-          setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval);
-          return;
-        }
 
         // Frame auf Canvas zeichnen
         context.drawImage(
@@ -298,11 +304,10 @@ window.addEventListener("load", () => {
 
         // Face Detection ausführen mit Device-ID Tracking
         activeDetections++;
-        processingQueue.set(deviceId, Date.now()); // Track welcher Device gerade processed wird
+        processingQueue.set(deviceId, Date.now());
 
         await faceDetection.send({
           image: canvas,
-          // Device-ID als Metadata mitgeben für Result-Mapping
           _deviceId: deviceId,
           timestamp: Date.now(),
         });
@@ -310,18 +315,17 @@ window.addEventListener("load", () => {
         // Nächsten Frame planen
         setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval);
       } catch (error) {
-        console.error("❌ Face Detection Frame Error:", deviceId, error);
         activeDetections = Math.max(0, activeDetections - 1);
-        setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval * 2);
+        setTimeout(processFrame, PERFORMANCE_SETTINGS.detectionInterval * 4);
       }
     };
 
-    // Initial delay
-    setTimeout(processFrame, Math.random() * 1000);
+    // Längerer initial delay für bessere Verteilung
+    setTimeout(processFrame, Math.random() * 2000);
   }
 
   // ================================================================
-  // FACE DETECTION RESULTS HANDLING
+  // FACE DETECTION RESULTS HANDLING - OPTIMIERT
   // ================================================================
 
   // MediaPipe Results Handler
@@ -334,81 +338,57 @@ window.addEventListener("load", () => {
       const deviceId = findDeviceIdFromCanvas(canvas);
 
       if (!deviceId) {
-        console.log("⚠️ Device ID nicht gefunden für Results");
-        return;
+        return; // Silent fail
       }
 
       // Face Detection Results verarbeiten
       processFaceDetectionResults(deviceId, results);
     } catch (error) {
-      console.error("❌ Results Processing Error:", error);
+      // Silent error handling
     }
   }
 
-  // Device ID aus Canvas finden (VERBESSERTE VERSION mit weniger Logs)
+  // Device ID aus Canvas finden - OPTIMIERT
   function findDeviceIdFromCanvas(canvas) {
     // Methode 1: Direkte Canvas-Eigenschaften prüfen
-    if (canvas && canvas._faceDetectionDeviceId) {
+    if (canvas?._faceDetectionDeviceId) {
       return canvas._faceDetectionDeviceId;
     }
 
     // Methode 2: Dataset prüfen
-    if (canvas && canvas.dataset && canvas.dataset.deviceId) {
+    if (canvas?.dataset?.deviceId) {
       return canvas.dataset.deviceId;
     }
 
     // Methode 3: Canvas-ID Mapping
-    if (canvas && canvas.id) {
+    if (canvas?.id) {
       const deviceId = canvasToDeviceMap.get(canvas.id);
       if (deviceId) return deviceId;
     }
 
-    // Methode 4: Object-Referenz Fallback (original)
-    for (let [deviceId, detectionCanvas] of detectionCanvases) {
-      if (detectionCanvas === canvas) {
-        return deviceId;
-      }
-    }
-
-    // Methode 5: Processing Queue basiert (für aktuelle Verarbeitung)
+    // Methode 4: Processing Queue basiert (für aktuelle Verarbeitung)
     const recentProcessing = Array.from(processingQueue.entries())
-      .filter(([_, timestamp]) => Date.now() - timestamp < 1000) // Letzte Sekunde
-      .sort((a, b) => b[1] - a[1]); // Neueste zuerst
+      .filter(([_, timestamp]) => Date.now() - timestamp < 1000)
+      .sort((a, b) => b[1] - a[1]);
 
     if (recentProcessing.length > 0) {
-      // Nur bei erstem Fallback loggen, nicht bei jedem
       const deviceId = recentProcessing[0][0];
+      // Nur bei erstem Fallback loggen, nicht bei jedem
       const lastFallbackLog = lastLoggedStates.get(`fallback-${deviceId}`);
-      if (!lastFallbackLog || Date.now() - lastFallbackLog > 5000) {
+      if (!lastFallbackLog || Date.now() - lastFallbackLog > 10000) {
         console.log("🔄 Fallback: Device ID via Processing Queue:", deviceId);
         lastLoggedStates.set(`fallback-${deviceId}`, Date.now());
       }
       return deviceId;
     }
 
-    // Nur alle 10 Sekunden Error loggen
-    const lastErrorLog = lastLoggedStates.get("lookup-error");
-    if (!lastErrorLog || Date.now() - lastErrorLog > 10000) {
-      console.error(
-        "❌ Canvas Device-ID Lookup failed - alle Methoden fehlgeschlagen"
-      );
-      lastLoggedStates.set("lookup-error", Date.now());
-    }
     return null;
   }
 
-  // Face Detection Results für Device verarbeiten (QUIET VERSION)
+  // Face Detection Results für Device verarbeiten - PERFORMANCE OPTIMIERT
   function processFaceDetectionResults(deviceId, results) {
     const state = faceDetectionStates.get(deviceId);
-    if (!state) {
-      // Nur einmal pro Device warnen
-      const lastWarn = lastLoggedStates.get(`missing-state-${deviceId}`);
-      if (!lastWarn || Date.now() - lastWarn > 30000) {
-        console.warn("⚠️ State nicht gefunden für Device:", deviceId);
-        lastLoggedStates.set(`missing-state-${deviceId}`, Date.now());
-      }
-      return;
-    }
+    if (!state) return; // Early exit ohne Log
 
     // Processing Queue aufräumen
     processingQueue.delete(deviceId);
@@ -416,106 +396,47 @@ window.addEventListener("load", () => {
     const currentTime = Date.now();
     let hasFace = false;
     let maxConfidence = 0;
-    let faceCount = 0;
 
-    // DEBUG: MediaPipe Results-Struktur loggen (nur bei Debug-Mode oder einmalig)
-    if (
-      LOGGING_CONFIG.debugMode &&
-      results.detections &&
-      results.detections.length > 0
-    ) {
-      const lastDebugLog = lastLoggedStates.get(`debug-${deviceId}`);
-      if (!lastDebugLog || Date.now() - lastDebugLog > 10000) {
-        console.log("🔍 DEBUG - MediaPipe Results Structure:", {
-          deviceId,
-          detectionsLength: results.detections.length,
-          firstDetection: results.detections[0],
-          detectionKeys: Object.keys(results.detections[0] || {}),
-          score: results.detections[0]?.score,
-          confidence: results.detections[0]?.confidence,
-        });
-        lastLoggedStates.set(`debug-${deviceId}`, Date.now());
+    // Optimierte Face Detection ohne verbose Logging
+    if (results?.detections?.length > 0) {
+      hasFace = true;
+      const detection = results.detections[0];
+
+      // Vereinfachte Confidence Extraktion - schneller
+      maxConfidence =
+        detection.score?.[0] || detection.score || detection.confidence || 0.8;
+
+      // Falls Array, nehme ersten Wert
+      if (Array.isArray(maxConfidence)) {
+        maxConfidence = maxConfidence[0] || 0.8;
       }
     }
 
-    // Faces analysieren mit robusten Score-Extraction
-    if (results.detections && results.detections.length > 0) {
-      hasFace = true;
-      faceCount = results.detections.length;
-
-      // Höchste Confidence finden - robuste Score-Extraction
-      results.detections.forEach((detection) => {
-        let confidence = 0;
-
-        // Verschiedene MediaPipe Score-Formate versuchen
-        if (
-          detection.score &&
-          Array.isArray(detection.score) &&
-          detection.score.length > 0
-        ) {
-          confidence = detection.score[0];
-        } else if (detection.score && typeof detection.score === "number") {
-          confidence = detection.score;
-        } else if (
-          detection.confidence &&
-          typeof detection.confidence === "number"
-        ) {
-          confidence = detection.confidence;
-        } else if (detection.detection && detection.detection.confidence) {
-          confidence = detection.detection.confidence;
-        } else if (detection.detection && detection.detection.score) {
-          confidence = Array.isArray(detection.detection.score)
-            ? detection.detection.score[0]
-            : detection.detection.score;
-        } else {
-          // Fallback: Wenn kein Score gefunden, nehme 0.8 als Default für erkannte Faces
-          confidence = 0.8;
-          // Nur alle 30 Sekunden warnen
-          const lastFallbackWarn = lastLoggedStates.get(
-            `confidence-fallback-${deviceId}`
-          );
-          if (!lastFallbackWarn || Date.now() - lastFallbackWarn > 30000) {
-            console.log(
-              "⚠️ Kein confidence score gefunden für",
-              deviceId,
-              "- nutze Fallback 0.8"
-            );
-            lastLoggedStates.set(`confidence-fallback-${deviceId}`, Date.now());
-          }
-        }
-
-        if (confidence > maxConfidence) {
-          maxConfidence = confidence;
-        }
-      });
-    }
-
-    // State Update nur bei Änderung
+    // State Update nur bei signifikanten Änderungen
     const previousHasFace = state.hasFace;
     const significantChange =
       hasFace !== previousHasFace ||
-      Math.abs(maxConfidence - state.confidence) > 0.1;
+      Math.abs(maxConfidence - state.confidence) > 0.15; // Größerer Threshold
 
-    if (significantChange || !LOGGING_CONFIG.logOnlyChanges) {
-      // State aktualisieren
+    if (significantChange) {
       state.hasFace = hasFace;
       state.confidence = maxConfidence;
       state.lastUpdate = currentTime;
 
-      // Nur bei bedeutenden Änderungen loggen
-      if (significantChange) {
-        console.log(`🎭 Face Detection Update - ${deviceId}:`, {
-          hasFace,
-          confidence: maxConfidence.toFixed(2),
-          faces: faceCount,
-        });
-
-        // UI Update
-        updateFaceDetectionUI(deviceId, hasFace, maxConfidence);
-
-        // Event System benachrichtigen
-        notifyFaceDetectionChange(deviceId, hasFace, maxConfidence);
+      // Massiv reduziertes Logging - nur alle 3 Sekunden pro Device
+      const lastLog = lastLoggedStates.get(`update-${deviceId}`) || 0;
+      if (currentTime - lastLog > 3000) {
+        console.log(
+          `🎭 ${deviceId}: ${hasFace ? "FACE" : "NO FACE"} (${(maxConfidence * 100).toFixed(0)}%)`
+        );
+        lastLoggedStates.set(`update-${deviceId}`, currentTime);
       }
+
+      // UI Update
+      updateFaceDetectionUI(deviceId, hasFace, maxConfidence);
+
+      // Event System benachrichtigen
+      notifyFaceDetectionChange(deviceId, hasFace, maxConfidence);
     }
   }
 
@@ -556,11 +477,20 @@ window.addEventListener("load", () => {
   }
 
   // ================================================================
-  // EVENT SYSTEM - Integration mit WebSocket
+  // EVENT SYSTEM - Integration mit WebSocket - OPTIMIERT
   // ================================================================
 
-  // Face Detection Änderungen an andere Devices senden
+  // Face Detection Änderungen an andere Devices senden - THROTTLED
   function notifyFaceDetectionChange(deviceId, hasFace, confidence) {
+    // Throttle WebSocket Messages - nur alle 1 Sekunde pro Device
+    const now = Date.now();
+    const lastNotify = notifyFaceDetectionChange._lastNotify || {};
+    if (lastNotify[deviceId] && now - lastNotify[deviceId] < 1000) {
+      return; // Skip this notification
+    }
+    notifyFaceDetectionChange._lastNotify = lastNotify;
+    lastNotify[deviceId] = now;
+
     if (window.roomVideoSocket?.readyState === WebSocket.OPEN) {
       const message = {
         type: "face-detection-update",
@@ -569,11 +499,17 @@ window.addEventListener("load", () => {
         targetDeviceId: deviceId,
         hasFace: hasFace,
         confidence: confidence,
-        timestamp: Date.now(),
+        timestamp: now,
       };
 
       window.roomVideoSocket.send(JSON.stringify(message));
-      console.log("📤 Face Detection Event gesendet:", message.type);
+
+      // Reduziertes Logging
+      const lastEventLog = lastLoggedStates.get(`event-${deviceId}`) || 0;
+      if (now - lastEventLog > 5000) {
+        console.log("📤 Face Detection Event gesendet:", message.type);
+        lastLoggedStates.set(`event-${deviceId}`, now);
+      }
     }
   }
 
@@ -710,16 +646,15 @@ window.addEventListener("load", () => {
           console.log(`  ${deviceId}:`, state);
         });
       },
-      // Neue Debug-Controls
-      enableVerboseLogging: () => {
-        LOGGING_CONFIG.debugMode = true;
-        LOGGING_CONFIG.logOnlyChanges = false;
-        console.log("🔊 Verbose Logging aktiviert");
-      },
-      disableVerboseLogging: () => {
-        LOGGING_CONFIG.debugMode = false;
-        LOGGING_CONFIG.logOnlyChanges = true;
-        console.log("🔇 Verbose Logging deaktiviert - nur wichtige Änderungen");
+      // Performance Debug
+      getPerformanceStats: () => {
+        return {
+          activeDetections,
+          totalDevices: faceDetectionStates.size,
+          canvasSize: `${PERFORMANCE_SETTINGS.canvasWidth}x${PERFORMANCE_SETTINGS.canvasHeight}`,
+          detectionInterval: `${PERFORMANCE_SETTINGS.detectionInterval}ms`,
+          logCacheSize: lastLoggedStates.size,
+        };
       },
       clearLogCache: () => {
         lastLoggedStates.clear();
@@ -736,5 +671,5 @@ window.addEventListener("load", () => {
   console.log("🚀 Starte Face Detection System...");
   setTimeout(initializeFaceDetection, 2000);
 
-  console.log("✅ Face Detection Module geladen");
+  console.log("✅ Face Detection Module geladen (Performance Optimiert)");
 });
