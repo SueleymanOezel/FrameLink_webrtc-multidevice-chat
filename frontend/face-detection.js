@@ -216,7 +216,7 @@ window.addEventListener("load", () => {
   function extractDeviceIdFromVideo(videoElement) {
     // room-video-stream-{deviceId} oder localRoomVideo
     if (videoElement.id === "localRoomVideo") {
-      return "local";
+      return videoElement.dataset.deviceId || "local";
     }
 
     const match = videoElement.id.match(/room-video-stream-(.+)/);
