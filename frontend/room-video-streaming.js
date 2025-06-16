@@ -511,6 +511,16 @@ window.addEventListener("load", () => {
       window.roomVideoManager.updateDeviceStatus(deviceId, "connected");
     }
 
+    // Nach dem Hinzufügen zur UI – Gerät zu Videoelement zuordnen
+    const videoElements = document.querySelectorAll("video");
+    for (const video of videoElements) {
+      if (video.srcObject === videoStream) {
+        video.dataset.deviceId = deviceId; // <-- Verknüpft Gerät mit Videoelement
+        console.log("🔗 Setze dataset.deviceId für Video:", deviceId);
+        break;
+      }
+    }
+
     // Update device count
     updateRoomDeviceCount();
   }
