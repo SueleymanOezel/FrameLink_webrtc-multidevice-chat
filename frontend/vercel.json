@@ -3,7 +3,6 @@
   "builds": [
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "app.js", "use": "@vercel/static" },
-    { "src": "debug.html", "use": "@vercel/static" },
     { "src": "simple-room.js", "use": "@vercel/static" },
     { "src": "room-video-streaming.js", "use": "@vercel/static" },
     { "src": "face-detection.js", "use": "@vercel/static" },
