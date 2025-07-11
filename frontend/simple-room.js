@@ -160,11 +160,17 @@ class RoomManager {
         roomControls.style.display = "block";
       }
 
-      // Setup room message handling
-      this.setupRoomHandlers();
+      // Room message handling is setup via RoomMessageHandler class
+      // (No need to call setupRoomHandlers - it's automatic via events)
 
       // Activate room video streaming
-      this.activateRoomVideo();
+      setTimeout(() => {
+        frameLink.events.dispatchEvent(
+          new CustomEvent("room-joined", {
+            detail: { roomId: roomState.roomId, deviceId: roomState.deviceId },
+          })
+        );
+      }, 500);
 
       frameLink.log("✅ Successfully joined room");
     }
@@ -216,8 +222,9 @@ class RoomManager {
 // ================================================================
 
 class RoomMessageHandler {
-  constructor() {
+  constructor(roomVideoManager) {
     this.messageCache = new Map();
+    this.roomVideoManager = roomVideoManager;
     this.setupMessageHandling();
   }
 
@@ -250,22 +257,27 @@ class RoomMessageHandler {
         this.handleRoomCallStart(message);
         break;
       case "room-video-offer":
-        this.handleRoomVideoOffer(message);
+        this.roomVideoManager.handleRoomVideoOffer(message);
         break;
       case "room-video-answer":
-        this.handleRoomVideoAnswer(message);
+        this.roomVideoManager.handleRoomVideoAnswer(message);
         break;
       case "room-video-ice":
-        this.handleRoomVideoIce(message);
+        this.roomVideoManager.handleRoomVideoIce(message);
         break;
       case "room-peer-joined":
-        this.handlePeerJoined(message);
+        this.roomVideoManager.handlePeerJoined(message);
         break;
       case "room-peer-left":
-        this.handlePeerLeft(message);
+        this.roomVideoManager.handlePeerLeft(message);
         break;
       case "face-detection-update":
-        this.handleFaceDetectionUpdate(message);
+        // Delegate to face detection manager
+        if (window.enhancedRoomSystem?.faceDetectionManager) {
+          window.enhancedRoomSystem.faceDetectionManager.handleFaceDetectionUpdate(
+            message
+          );
+        }
         break;
     }
   }
@@ -1037,8 +1049,8 @@ class FaceDetectionManager {
 class EnhancedRoomSystem {
   constructor() {
     this.roomManager = new RoomManager();
-    this.messageHandler = new RoomMessageHandler();
     this.roomVideoManager = new RoomVideoManager();
+    this.messageHandler = new RoomMessageHandler(this.roomVideoManager);
     this.faceDetectionManager = new FaceDetectionManager();
 
     this.setupGlobalAPI();
