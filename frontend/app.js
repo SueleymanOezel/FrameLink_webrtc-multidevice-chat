@@ -1,395 +1,773 @@
-// DOM Elemente
-const localVideo = document.getElementById("localVideo");
-const remoteVideo = document.getElementById("remoteVideo");
-const startBtn = document.getElementById("startCall");
-const statusDiv = document.getElementById("status") || createStatusDiv();
-const toggleCameraBtn = document.getElementById("toggleCameraBtn");
-const toggleMicBtn = document.getElementById("toggleMicBtn");
-const endCallBtn = document.getElementById("endCallBtn");
-
-// Status-Anzeige erstellen falls nicht vorhanden
-function createStatusDiv() {
-  const div = document.createElement("div");
-  div.id = "status";
-  div.style.padding = "10px";
-  div.style.margin = "10px";
-  div.style.backgroundColor = "#f0f0f0";
-  div.style.border = "1px solid #ccc";
-  document.body.insertBefore(div, document.body.firstChild);
-  return div;
-}
-
-// Globale Variablen
-let localStream;
-let peerConnection;
-let socket;
-let cameraEnabled = true;
-let micEnabled = true;
-
 // ================================================================
-// ENHANCED TURN CONFIGURATION - Deine verbesserte Version
+// 🚀 ENHANCED APP.JS - PHASE 1 COMPLETE
+// ================================================================
+// Responsibilities: Core WebRTC, TURN Config, PeerConnection Factory, Events
+// Integrates: websocket-debug-fix.js + unified architecture
+// Status: PRODUCTION READY
 // ================================================================
 
-const TURN_USERNAME = "18dd3dc42100ea8643228a68";
-const TURN_CREDENTIAL = "9u70h1tuJ9YA0ONB";
+console.log("🚀 FrameLink Core System loading...");
 
-const ENHANCED_ICE_SERVERS = [
-  // STUN Servers
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
+// ================================================================
+// 🏗️ GLOBAL FRAMELINK SYSTEM
+// ================================================================
 
-  // UDP-TURN (oft schneller und zuverlässiger)
-  {
-    urls: "turn:global.relay.metered.ca:3478?transport=udp",
-    username: TURN_USERNAME,
-    credential: TURN_CREDENTIAL,
-  },
-  {
-    urls: "turns:global.relay.metered.ca:443?transport=udp",
-    username: TURN_USERNAME,
-    credential: TURN_CREDENTIAL,
+window.frameLink = {
+  // Core state management
+  core: {
+    initialized: false,
+    webSocketReady: false,
+    localStream: null,
+    currentCall: null,
+    debug: true,
   },
 
-  // TCP-TURN (Fallback wenn UDP blockiert ist)
-  {
-    urls: "turn:global.relay.metered.ca:80?transport=tcp",
-    username: TURN_USERNAME,
-    credential: TURN_CREDENTIAL,
-  },
-  {
-    urls: "turns:global.relay.metered.ca:443?transport=tcp",
-    username: TURN_USERNAME,
-    credential: TURN_CREDENTIAL,
-  },
+  // Event system for inter-module communication
+  events: new EventTarget(),
 
-  // Backup: Original Konfiguration
-  {
-    urls: "turn:global.relay.metered.ca:80",
-    username: TURN_USERNAME,
-    credential: TURN_CREDENTIAL,
-  },
-];
+  // Modules will register here
+  modules: {},
 
-// Status anzeigen
-function showStatus(message, color = "black") {
-  console.log(message);
-  statusDiv.textContent = message;
-  statusDiv.style.color = color;
-}
+  // Public API
+  api: {},
+};
 
-// WebSocket-Verbindung
-function connectWebSocket() {
-  const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.fly.dev";
+// ================================================================
+// 🌐 UNIFIED TURN CONFIGURATION
+// ================================================================
 
-  showStatus("Verbinde mit Server...", "blue");
+const FRAMELINK_TURN_CONFIG = {
+  username: "18dd3dc42100ea8643228a68",
+  credential: "9u70h1tuJ9YA0ONB",
 
-  socket = new WebSocket(wsUrl);
-  window.socket = socket;
+  servers: [
+    // STUN Servers
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
 
-  socket.onopen = () => {
-    showStatus("Mit Server verbunden!", "green");
-    startBtn.disabled = false;
-  };
+    // UDP-TURN (Primary)
+    {
+      urls: "turn:global.relay.metered.ca:3478?transport=udp",
+      username: "18dd3dc42100ea8643228a68",
+      credential: "9u70h1tuJ9YA0ONB",
+    },
+    {
+      urls: "turns:global.relay.metered.ca:443?transport=udp",
+      username: "18dd3dc42100ea8643228a68",
+      credential: "9u70h1tuJ9YA0ONB",
+    },
 
-  socket.onerror = (error) => {
-    showStatus("Verbindungsfehler!", "red");
-    console.error("WebSocket Fehler:", error);
-  };
+    // TCP-TURN (Fallback)
+    {
+      urls: "turn:global.relay.metered.ca:80?transport=tcp",
+      username: "18dd3dc42100ea8643228a68",
+      credential: "9u70h1tuJ9YA0ONB",
+    },
+    {
+      urls: "turns:global.relay.metered.ca:443?transport=tcp",
+      username: "18dd3dc42100ea8643228a68",
+      credential: "9u70h1tuJ9YA0ONB",
+    },
 
-  socket.onclose = () => {
-    showStatus("Verbindung getrennt", "orange");
-    startBtn.disabled = true;
-    window.socket = null;
-    setTimeout(connectWebSocket, 3000);
-  };
+    // Backup
+    {
+      urls: "turn:global.relay.metered.ca:80",
+      username: "18dd3dc42100ea8643228a68",
+      credential: "9u70h1tuJ9YA0ONB",
+    },
+  ],
+};
 
-  socket.onmessage = async (event) => {
-    try {
-      let data;
-      if (event.data instanceof Blob) {
-        data = await event.data.text();
-      } else {
-        data = event.data;
-      }
+// ================================================================
+// 🏭 PEERCONNECTION FACTORY
+// ================================================================
 
-      const message = JSON.parse(data);
+class PeerConnectionFactory {
+  static create(options = {}) {
+    const defaultConfig = {
+      iceServers: FRAMELINK_TURN_CONFIG.servers,
+      iceTransportPolicy: "all",
+      iceCandidatePoolSize: 15,
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
+    };
 
-      if (message.type === "offer") {
-        await handleOffer(message);
-      } else if (message.type === "answer") {
-        await handleAnswer(message);
-      } else if (message.type === "ice") {
-        await handleIceCandidate(message);
-      }
-    } catch (error) {
-      console.error("Fehler beim Verarbeiten der Nachricht:", error);
-    }
-  };
-}
+    const config = { ...defaultConfig, ...options };
+    const peerConnection = new RTCPeerConnection(config);
 
-// Medien initialisieren
-async function initMedia() {
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
-    localVideo.srcObject = localStream;
-    showStatus("Kamera bereit", "green");
-    return true;
-  } catch (error) {
-    showStatus("Kamera-Fehler: " + error.message, "red");
-    return false;
-  }
-}
+    // Enhanced logging for all connections
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        const candidate = event.candidate;
+        frameLink.log(
+          `🔗 ICE Candidate: ${candidate.type} ${candidate.protocol}`,
+          candidate.address
+        );
 
-// PeerConnection erstellen mit Enhanced TURN Config
-function createPeerConnection() {
-  console.log("🔧 Creating PeerConnection with Enhanced TURN Config...");
-
-  peerConnection = new RTCPeerConnection({
-    iceServers: ENHANCED_ICE_SERVERS,
-    iceTransportPolicy: "all", // Erlaube alle Candidate-Typen
-    iceCandidatePoolSize: 15, // Mehr Candidates für bessere Konnektivität
-    bundlePolicy: "max-bundle",
-    rtcpMuxPolicy: "require",
-  });
-
-  // Lokale Tracks hinzufügen
-  if (localStream && localStream.getTracks) {
-    localStream.getTracks().forEach((track) => {
-      peerConnection.addTrack(track, localStream);
-    });
-  } else {
-    console.warn("localStream noch nicht verfügbar - wird später hinzugefügt");
-  }
-
-  // Remote Stream empfangen
-  peerConnection.ontrack = (event) => {
-    console.log("Remote track empfangen:", event.streams);
-    remoteVideo.srcObject = event.streams[0];
-    showStatus("Verbindung hergestellt!", "green");
-  };
-
-  // Verbindungsstatus überwachen
-  peerConnection.onconnectionstatechange = () => {
-    console.log("Verbindungsstatus:", peerConnection.connectionState);
-    showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
-
-    if (peerConnection.connectionState === "connected") {
-      showStatus("Video Call erfolgreich verbunden!", "green");
-    } else if (
-      peerConnection.connectionState === "failed" ||
-      peerConnection.connectionState === "disconnected"
-    ) {
-      showStatus("Verbindung verloren - bitte neu starten", "orange");
-
-      setTimeout(() => {
-        if (peerConnection.connectionState === "disconnected") {
-          showStatus("Versuche neu zu verbinden...", "blue");
+        if (candidate.type === "relay") {
+          frameLink.log(`🎉 TURN RELAY found!`, {
+            address: candidate.address,
+            port: candidate.port,
+            protocol: candidate.protocol,
+          });
         }
-      }, 3000);
-    }
-  };
 
-  // Enhanced ICE candidate handling mit detailliertem Logging
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      // Detailliertes Logging für TURN Debug
-      const candidate = event.candidate;
-      console.log(
-        "ICE Candidate Typ:",
-        candidate.type,
-        "Protokoll:",
-        candidate.protocol
-      );
-
-      if (candidate.type === "relay") {
-        console.log("🎉 TURN RELAY Candidate gefunden!", {
-          address: candidate.address,
-          port: candidate.port,
-          protocol: candidate.protocol,
-        });
-      }
-
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(
-          JSON.stringify({
-            type: "ice",
-            candidate: event.candidate,
+        // Emit event for other modules to handle
+        frameLink.events.dispatchEvent(
+          new CustomEvent("ice-candidate", {
+            detail: { candidate: event.candidate, peerConnection },
           })
         );
       }
-    }
-  };
+    };
 
-  // ICE connection state monitoring
-  peerConnection.oniceconnectionstatechange = () => {
-    console.log("ICE Connection State:", peerConnection.iceConnectionState);
+    // Connection state monitoring
+    peerConnection.onconnectionstatechange = () => {
+      frameLink.log(`🔗 Connection State: ${peerConnection.connectionState}`);
 
-    if (peerConnection.iceConnectionState === "connected") {
-      console.log(
-        "🎉 ICE Connection erfolgreicht - NAT traversal funktioniert!"
+      frameLink.events.dispatchEvent(
+        new CustomEvent("connection-state-change", {
+          detail: {
+            state: peerConnection.connectionState,
+            peerConnection,
+          },
+        })
       );
-    } else if (peerConnection.iceConnectionState === "failed") {
-      console.error("❌ ICE Connection failed - TURN Server Problem");
-      showStatus("TURN Server Verbindung fehlgeschlagen", "red");
-    }
-  };
+
+      if (peerConnection.connectionState === "connected") {
+        frameLink.log("🎉 WebRTC Connection established!");
+      } else if (peerConnection.connectionState === "failed") {
+        frameLink.log("❌ WebRTC Connection failed!");
+      }
+    };
+
+    // ICE connection state monitoring
+    peerConnection.oniceconnectionstatechange = () => {
+      frameLink.log(`🧊 ICE State: ${peerConnection.iceConnectionState}`);
+
+      if (peerConnection.iceConnectionState === "connected") {
+        frameLink.log("🎉 NAT Traversal successful!");
+      } else if (peerConnection.iceConnectionState === "failed") {
+        frameLink.log("❌ NAT Traversal failed!");
+      }
+    };
+
+    // Remote stream handling
+    peerConnection.ontrack = (event) => {
+      frameLink.log("📹 Remote stream received", event.streams.length);
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("remote-stream", {
+          detail: { streams: event.streams, peerConnection },
+        })
+      );
+    };
+
+    frameLink.log("🏭 PeerConnection created", config);
+    return peerConnection;
+  }
 }
 
-// Tracks nachträglich hinzufügen
-async function addLocalStreamToPeerConnection() {
-  if (!localStream) {
-    const success = await initMedia();
-    if (!success) return;
+// ================================================================
+// 🌐 ENHANCED WEBSOCKET MANAGER
+// ================================================================
+
+class WebSocketManager {
+  constructor() {
+    this.socket = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 2000;
+    this.heartbeatInterval = null;
   }
 
-  if (peerConnection && localStream) {
-    localStream.getTracks().forEach((track) => {
-      const senders = peerConnection.getSenders();
-      const trackAlreadyAdded = senders.some(
-        (sender) => sender.track === track
-      );
+  async connect() {
+    const urls = this.getWebSocketURLs();
 
-      if (!trackAlreadyAdded) {
-        peerConnection.addTrack(track, localStream);
-        console.log("Track nachträglich hinzugefügt:", track.kind);
+    for (const url of urls) {
+      try {
+        frameLink.log(`🔌 Attempting connection: ${url}`);
+        const socket = await this.attemptConnection(url);
+
+        this.socket = socket;
+        this.setupSocketHandlers();
+        this.startHeartbeat();
+
+        window.socket = socket; // Backward compatibility
+        frameLink.core.webSocketReady = true;
+
+        frameLink.events.dispatchEvent(
+          new CustomEvent("websocket-ready", {
+            detail: { socket },
+          })
+        );
+
+        frameLink.log(`✅ WebSocket connected: ${url}`);
+        return socket;
+      } catch (error) {
+        frameLink.log(`❌ Connection failed: ${url}`, error.message);
       }
+    }
+
+    throw new Error("All WebSocket URLs failed");
+  }
+
+  getWebSocketURLs() {
+    return ["wss://framelink-signaling.fly.dev", window.WEBSOCKET_URL].filter(
+      Boolean
+    );
+  }
+
+  attemptConnection(url) {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(url);
+      const timeout = setTimeout(() => {
+        socket.close();
+        reject(new Error("Connection timeout"));
+      }, 5000);
+
+      socket.onopen = () => {
+        clearTimeout(timeout);
+        resolve(socket);
+      };
+
+      socket.onerror = (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      };
     });
   }
-}
 
-// Kamera an/aus
-function toggleCamera() {
-  if (!localStream) return;
-  cameraEnabled = !cameraEnabled;
-  localStream.getVideoTracks().forEach((track) => {
-    track.enabled = cameraEnabled;
-  });
-  toggleCameraBtn.textContent = cameraEnabled
-    ? "📹 Camera On"
-    : "📹 Camera Off";
-  showStatus(`Kamera ${cameraEnabled ? "aktiv" : "deaktiviert"}`, "blue");
-}
+  setupSocketHandlers() {
+    this.socket.onmessage = async (event) => {
+      let data = event.data;
+      if (data instanceof Blob) {
+        data = await data.text();
+      }
 
-// Mikrofon an/aus
-function toggleMicrophone() {
-  if (!localStream) return;
-  micEnabled = !micEnabled;
-  localStream.getAudioTracks().forEach((track) => {
-    track.enabled = micEnabled;
-  });
-  toggleMicBtn.textContent = micEnabled ? "🎤 Mic On" : "🎤 Mic Off";
-  showStatus(`Mikrofon ${micEnabled ? "aktiv" : "deaktiviert"}`, "blue");
-}
+      try {
+        const message = JSON.parse(data);
 
-// Anruf beenden
-function endCall() {
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
+        // Emit event for other modules
+        frameLink.events.dispatchEvent(
+          new CustomEvent("websocket-message", {
+            detail: { message, raw: data },
+          })
+        );
+
+        // Handle core WebRTC messages
+        this.handleCoreMessage(message);
+      } catch (error) {
+        frameLink.log("📥 Non-JSON message received", data);
+      }
+    };
+
+    this.socket.onclose = (event) => {
+      frameLink.log(`🔌 WebSocket closed: ${event.code}`, event.reason);
+      frameLink.core.webSocketReady = false;
+
+      if (
+        !event.wasClean &&
+        this.reconnectAttempts < this.maxReconnectAttempts
+      ) {
+        this.scheduleReconnect();
+      }
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("websocket-closed", {
+          detail: { event },
+        })
+      );
+    };
+
+    this.socket.onerror = (error) => {
+      frameLink.log("❌ WebSocket error", error);
+      frameLink.events.dispatchEvent(
+        new CustomEvent("websocket-error", {
+          detail: { error },
+        })
+      );
+    };
   }
-  remoteVideo.srcObject = null;
-  showStatus("Anruf beendet", "red");
 
-  // Buttons zurücksetzen
-  startBtn.disabled = false;
-  toggleCameraBtn.disabled = true;
-  toggleMicBtn.disabled = true;
-  endCallBtn.disabled = true;
-}
+  handleCoreMessage(message) {
+    const { type } = message;
 
-// Anruf starten
-async function startCall() {
-  // Buttons aktiv setzen
-  toggleCameraBtn.disabled = false;
-  toggleMicBtn.disabled = false;
-  endCallBtn.disabled = false;
-
-  if (!localStream) {
-    if (!(await initMedia())) return;
+    switch (type) {
+      case "offer":
+        this.handleOffer(message);
+        break;
+      case "answer":
+        this.handleAnswer(message);
+        break;
+      case "ice":
+        this.handleIceCandidate(message);
+        break;
+      case "ping":
+        this.sendMessage({ type: "pong", timestamp: Date.now() });
+        break;
+      default:
+        // Let other modules handle via events
+        break;
+    }
   }
 
-  createPeerConnection();
+  async handleOffer(message) {
+    frameLink.log("📥 Handling offer");
 
-  // Offer erstellen
-  const offer = await peerConnection.createOffer({
-    offerToReceiveAudio: true,
-    offerToReceiveVideo: true,
-  });
-  await peerConnection.setLocalDescription(offer);
+    if (!frameLink.core.currentCall) {
+      frameLink.core.currentCall = PeerConnectionFactory.create();
+      await this.setupLocalStream();
+    }
 
-  // Offer senden
-  socket.send(
-    JSON.stringify({
-      type: "offer",
-      offer: offer,
-    })
-  );
+    const pc = frameLink.core.currentCall;
+    await pc.setRemoteDescription(message.offer);
 
-  showStatus("Anruf gestartet...", "blue");
-}
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
 
-// Offer verarbeiten
-async function handleOffer(message) {
-  createPeerConnection();
-
-  await peerConnection.setRemoteDescription(message.offer);
-
-  // Stelle sicher dass localStream verfügbar ist
-  await addLocalStreamToPeerConnection();
-
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answer);
-
-  socket.send(
-    JSON.stringify({
+    this.sendMessage({
       type: "answer",
       answer: answer,
-    })
-  );
+    });
 
-  showStatus("Anruf angenommen", "green");
-}
+    frameLink.events.dispatchEvent(
+      new CustomEvent("call-started", {
+        detail: { type: "incoming", peerConnection: pc },
+      })
+    );
+  }
 
-// Answer verarbeiten
-async function handleAnswer(message) {
-  await peerConnection.setRemoteDescription(message.answer);
-}
+  async handleAnswer(message) {
+    frameLink.log("📥 Handling answer");
 
-// ICE Candidate verarbeiten
-async function handleIceCandidate(message) {
-  try {
-    if (peerConnection && message.candidate) {
-      await peerConnection.addIceCandidate(
-        new RTCIceCandidate(message.candidate)
-      );
-      console.log("ICE Candidate hinzugefügt");
+    if (frameLink.core.currentCall) {
+      await frameLink.core.currentCall.setRemoteDescription(message.answer);
     }
-  } catch (error) {
-    console.error("Fehler beim Hinzufügen von ICE Candidate:", error);
+  }
+
+  async handleIceCandidate(message) {
+    if (frameLink.core.currentCall && message.candidate) {
+      try {
+        await frameLink.core.currentCall.addIceCandidate(
+          new RTCIceCandidate(message.candidate)
+        );
+        frameLink.log("✅ ICE candidate added");
+      } catch (error) {
+        frameLink.log("❌ ICE candidate error", error);
+      }
+    }
+  }
+
+  sendMessage(message) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(message));
+      return true;
+    }
+    frameLink.log("❌ Cannot send message - WebSocket not ready");
+    return false;
+  }
+
+  startHeartbeat() {
+    this.heartbeatInterval = setInterval(() => {
+      this.sendMessage({ type: "ping", timestamp: Date.now() });
+    }, 30000);
+  }
+
+  scheduleReconnect() {
+    this.reconnectAttempts++;
+    const delay = this.reconnectDelay * this.reconnectAttempts;
+
+    frameLink.log(
+      `🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`
+    );
+
+    setTimeout(() => {
+      this.connect().catch((error) => {
+        frameLink.log("❌ Reconnection failed", error);
+      });
+    }, delay);
+  }
+
+  async setupLocalStream() {
+    if (!frameLink.core.localStream) {
+      try {
+        frameLink.core.localStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+
+        const localVideo = document.getElementById("localVideo");
+        if (localVideo) {
+          localVideo.srcObject = frameLink.core.localStream;
+        }
+
+        frameLink.events.dispatchEvent(
+          new CustomEvent("local-stream-ready", {
+            detail: { stream: frameLink.core.localStream },
+          })
+        );
+
+        frameLink.log("📹 Local stream ready");
+      } catch (error) {
+        frameLink.log("❌ Local stream error", error);
+        throw error;
+      }
+    }
+
+    // Add tracks to current call
+    if (frameLink.core.currentCall && frameLink.core.localStream) {
+      frameLink.core.localStream.getTracks().forEach((track) => {
+        frameLink.core.currentCall.addTrack(track, frameLink.core.localStream);
+      });
+    }
   }
 }
 
-// Button Events
-startBtn.addEventListener("click", startCall);
+// ================================================================
+// 📱 MEDIA MANAGER
+// ================================================================
 
-// App starten
-window.addEventListener("load", () => {
-  connectWebSocket();
-  initMedia();
+class MediaManager {
+  constructor() {
+    this.localStream = null;
+    this.cameraEnabled = true;
+    this.micEnabled = true;
+  }
 
-  // Button-Events
-  toggleCameraBtn.addEventListener("click", toggleCamera);
-  toggleMicBtn.addEventListener("click", toggleMicrophone);
-  endCallBtn.addEventListener("click", endCall);
+  async initializeMedia() {
+    try {
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
 
-  // Debug: Log TURN config on load
-  console.log("🔧 Enhanced TURN Configuration loaded:", {
-    servers: ENHANCED_ICE_SERVERS.length,
-    username: TURN_USERNAME,
-    transports: ["udp", "tcp", "original"],
-  });
+      frameLink.core.localStream = this.localStream;
+
+      // Update UI
+      const localVideo = document.getElementById("localVideo");
+      const localRoomVideo = document.getElementById("localRoomVideo");
+
+      if (localVideo) localVideo.srcObject = this.localStream;
+      if (localRoomVideo) localRoomVideo.srcObject = this.localStream;
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("media-ready", {
+          detail: { stream: this.localStream },
+        })
+      );
+
+      frameLink.log("📹 Media initialized");
+      return this.localStream;
+    } catch (error) {
+      frameLink.log("❌ Media initialization failed", error);
+      throw error;
+    }
+  }
+
+  toggleCamera() {
+    if (this.localStream) {
+      this.cameraEnabled = !this.cameraEnabled;
+      this.localStream.getVideoTracks().forEach((track) => {
+        track.enabled = this.cameraEnabled;
+      });
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("camera-toggled", {
+          detail: { enabled: this.cameraEnabled },
+        })
+      );
+
+      frameLink.log(`📹 Camera ${this.cameraEnabled ? "enabled" : "disabled"}`);
+    }
+  }
+
+  toggleMicrophone() {
+    if (this.localStream) {
+      this.micEnabled = !this.micEnabled;
+      this.localStream.getAudioTracks().forEach((track) => {
+        track.enabled = this.micEnabled;
+      });
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("microphone-toggled", {
+          detail: { enabled: this.micEnabled },
+        })
+      );
+
+      frameLink.log(
+        `🎤 Microphone ${this.micEnabled ? "enabled" : "disabled"}`
+      );
+    }
+  }
+}
+
+// ================================================================
+// 🎮 CALL MANAGER
+// ================================================================
+
+class CallManager {
+  constructor(webSocketManager, mediaManager) {
+    this.webSocketManager = webSocketManager;
+    this.mediaManager = mediaManager;
+    this.currentCall = null;
+  }
+
+  async startCall() {
+    frameLink.log("🚀 Starting call...");
+
+    // Ensure media is ready
+    if (!frameLink.core.localStream) {
+      await this.mediaManager.initializeMedia();
+    }
+
+    // Create peer connection
+    this.currentCall = PeerConnectionFactory.create();
+    frameLink.core.currentCall = this.currentCall;
+
+    // Add local stream
+    frameLink.core.localStream.getTracks().forEach((track) => {
+      this.currentCall.addTrack(track, frameLink.core.localStream);
+    });
+
+    // Create and send offer
+    const offer = await this.currentCall.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
+
+    await this.currentCall.setLocalDescription(offer);
+
+    this.webSocketManager.sendMessage({
+      type: "offer",
+      offer: offer,
+    });
+
+    frameLink.events.dispatchEvent(
+      new CustomEvent("call-started", {
+        detail: { type: "outgoing", peerConnection: this.currentCall },
+      })
+    );
+
+    frameLink.log("📤 Call offer sent");
+  }
+
+  endCall() {
+    if (this.currentCall) {
+      this.currentCall.close();
+      this.currentCall = null;
+      frameLink.core.currentCall = null;
+
+      // Clear remote video
+      const remoteVideo = document.getElementById("remoteVideo");
+      if (remoteVideo) {
+        remoteVideo.srcObject = null;
+      }
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("call-ended", {
+          detail: {},
+        })
+      );
+
+      frameLink.log("📞 Call ended");
+    }
+  }
+}
+
+// ================================================================
+// 🔧 CORE SYSTEM INITIALIZATION
+// ================================================================
+
+class FrameLinkCore {
+  constructor() {
+    this.webSocketManager = new WebSocketManager();
+    this.mediaManager = new MediaManager();
+    this.callManager = new CallManager(
+      this.webSocketManager,
+      this.mediaManager
+    );
+
+    this.setupEventListeners();
+  }
+
+  async initialize() {
+    frameLink.log("🚀 Initializing FrameLink Core...");
+
+    try {
+      // Initialize media first
+      await this.mediaManager.initializeMedia();
+
+      // Connect WebSocket
+      await this.webSocketManager.connect();
+
+      // Setup UI
+      this.setupUI();
+
+      frameLink.core.initialized = true;
+      frameLink.events.dispatchEvent(new CustomEvent("core-ready"));
+
+      frameLink.log("✅ FrameLink Core initialized successfully");
+    } catch (error) {
+      frameLink.log("❌ Core initialization failed", error);
+      throw error;
+    }
+  }
+
+  setupEventListeners() {
+    // Handle remote streams
+    frameLink.events.addEventListener("remote-stream", (event) => {
+      const remoteVideo = document.getElementById("remoteVideo");
+      if (remoteVideo && event.detail.streams[0]) {
+        remoteVideo.srcObject = event.detail.streams[0];
+        frameLink.log("📹 Remote video connected");
+      }
+    });
+
+    // Handle ICE candidates from factory
+    frameLink.events.addEventListener("ice-candidate", (event) => {
+      this.webSocketManager.sendMessage({
+        type: "ice",
+        candidate: event.detail.candidate,
+      });
+    });
+  }
+
+  setupUI() {
+    // Main call button
+    const startBtn = document.getElementById("startCall");
+    if (startBtn) {
+      startBtn.disabled = false;
+      startBtn.addEventListener("click", () => this.callManager.startCall());
+    }
+
+    // Camera toggle
+    const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+    if (toggleCameraBtn) {
+      toggleCameraBtn.disabled = false;
+      toggleCameraBtn.addEventListener("click", () => {
+        this.mediaManager.toggleCamera();
+        toggleCameraBtn.textContent = this.mediaManager.cameraEnabled
+          ? "📹 Camera On"
+          : "📹 Camera Off";
+      });
+    }
+
+    // Mic toggle
+    const toggleMicBtn = document.getElementById("toggleMicBtn");
+    if (toggleMicBtn) {
+      toggleMicBtn.disabled = false;
+      toggleMicBtn.addEventListener("click", () => {
+        this.mediaManager.toggleMicrophone();
+        toggleMicBtn.textContent = this.mediaManager.micEnabled
+          ? "🎤 Mic On"
+          : "🎤 Mic Off";
+      });
+    }
+
+    // End call button
+    const endCallBtn = document.getElementById("endCallBtn");
+    if (endCallBtn) {
+      endCallBtn.disabled = false;
+      endCallBtn.addEventListener("click", () => this.callManager.endCall());
+    }
+
+    // Status updates
+    this.updateStatus("FrameLink Core ready");
+  }
+
+  updateStatus(message, color = "green") {
+    const statusDiv = document.getElementById("status");
+    if (statusDiv) {
+      statusDiv.textContent = message;
+      statusDiv.style.color = color;
+    }
+  }
+}
+
+// ================================================================
+// 🔧 LOGGING SYSTEM
+// ================================================================
+
+frameLink.log = function (message, data = null) {
+  if (!frameLink.core.debug) return;
+
+  const timestamp = new Date().toLocaleTimeString();
+  const prefix = `[FrameLink ${timestamp}]`;
+
+  if (data) {
+    console.log(`${prefix} ${message}`, data);
+  } else {
+    console.log(`${prefix} ${message}`);
+  }
+};
+
+// ================================================================
+// 🚀 PUBLIC API
+// ================================================================
+
+frameLink.api = {
+  // Core functions
+  startCall: () => frameLink.core.instance?.callManager.startCall(),
+  endCall: () => frameLink.core.instance?.callManager.endCall(),
+
+  // Media controls
+  toggleCamera: () => frameLink.core.instance?.mediaManager.toggleCamera(),
+  toggleMicrophone: () =>
+    frameLink.core.instance?.mediaManager.toggleMicrophone(),
+
+  // PeerConnection factory
+  createPeerConnection: (options) => PeerConnectionFactory.create(options),
+
+  // WebSocket
+  sendMessage: (message) =>
+    frameLink.core.instance?.webSocketManager.sendMessage(message),
+
+  // State
+  getState: () => frameLink.core,
+  isReady: () => frameLink.core.initialized && frameLink.core.webSocketReady,
+
+  // Events
+  on: (event, handler) => frameLink.events.addEventListener(event, handler),
+  off: (event, handler) => frameLink.events.removeEventListener(event, handler),
+  emit: (event, detail) =>
+    frameLink.events.dispatchEvent(new CustomEvent(event, { detail })),
+};
+
+// ================================================================
+// 🚀 AUTO-INITIALIZATION
+// ================================================================
+
+window.addEventListener("load", async () => {
+  frameLink.log("🚀 FrameLink loading...");
+
+  frameLink.core.instance = new FrameLinkCore();
+
+  try {
+    await frameLink.core.instance.initialize();
+    frameLink.log("✅ FrameLink ready!");
+
+    // Backward compatibility
+    window.startCall = frameLink.api.startCall;
+    window.endCall = frameLink.api.endCall;
+    window.toggleCamera = frameLink.api.toggleCamera;
+    window.toggleMicrophone = frameLink.api.toggleMicrophone;
+  } catch (error) {
+    frameLink.log("❌ FrameLink initialization failed", error);
+  }
 });
+
+// ================================================================
+// 📊 DEBUG TOOLS
+// ================================================================
+
+window.frameLinkDebug = {
+  status: () => frameLink.api.getState(),
+  test: () => frameLink.api.startCall(),
+  logs: () => console.log("Use frameLink.log() for logging"),
+  events: () => frameLink.events,
+  api: () => frameLink.api,
+};
+
+frameLink.log("✅ Enhanced app.js loaded - Phase 1 Complete");
