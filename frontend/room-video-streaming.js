@@ -272,15 +272,38 @@ window.addEventListener("load", () => {
   async function createRoomPeerConnection(remoteDeviceId) {
     console.log("🔗 Erstelle Room PeerConnection zu:", remoteDeviceId);
 
+    const ENHANCED_ICE_SERVERS = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      {
+        urls: "turn:global.relay.metered.ca:3478?transport=udp",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=udp",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "18dd3dc42100ea8643228a68",
+        credential: "9u70h1tuJ9YA0ONB",
+      },
+    ];
+
     const peerConnection = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.relay.metered.ca:80" },
-        {
-          urls: "turn:global.relay.metered.ca:80",
-          username: "18dd3dc42100ea8643228a68",
-          credential: "9u70h1tuJ9YA0ONB",
-        },
-      ],
+      iceServers: ENHANCED_ICE_SERVERS,
+      iceTransportPolicy: "all",
+      iceCandidatePoolSize: 15,
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
     });
 
     // Ensure local stream is available before adding tracks
@@ -348,20 +371,49 @@ window.addEventListener("load", () => {
 
     // Handle ICE candidates
     peerConnection.onicecandidate = (event) => {
-      if (
-        event.candidate &&
-        window.roomVideoSocket?.readyState === WebSocket.OPEN
-      ) {
-        console.log("📤 Sende Room ICE Candidate zu:", remoteDeviceId);
-        window.roomVideoSocket.send(
-          JSON.stringify({
-            type: "room-video-ice",
-            roomId: currentRoomId,
-            fromDeviceId: localDeviceId,
-            toDeviceId: remoteDeviceId,
-            candidate: event.candidate,
-          })
+      if (event.candidate) {
+        // ✅ DETAILLIERTES DEBUGGING - Das fehlt in deinem Code!
+        const candidate = event.candidate;
+        console.log(
+          "🔗 ROOM ICE Candidate Typ:",
+          candidate.type,
+          "Protokoll:",
+          candidate.protocol,
+          "zu:",
+          remoteDeviceId
         );
+
+        // ✅ SPEZIELLE TURN RELAY DETECTION
+        if (candidate.type === "relay") {
+          console.log("🎉 ROOM TURN RELAY Candidate gefunden!", {
+            address: candidate.address,
+            port: candidate.port,
+            protocol: candidate.protocol,
+            remoteDevice: remoteDeviceId,
+          });
+        } else if (candidate.type === "host") {
+          console.log("🏠 ROOM Host candidate (lokale IP)");
+        } else if (candidate.type === "srflx") {
+          console.log("🌐 ROOM STUN candidate (öffentliche IP)");
+        }
+
+        // ✅ WEBSOCKET SENDEN (dein originaler Code)
+        if (window.roomVideoSocket?.readyState === WebSocket.OPEN) {
+          console.log("📤 Sende Room ICE Candidate zu:", remoteDeviceId);
+          window.roomVideoSocket.send(
+            JSON.stringify({
+              type: "room-video-ice",
+              roomId: currentRoomId,
+              fromDeviceId: localDeviceId,
+              toDeviceId: remoteDeviceId,
+              candidate: event.candidate,
+            })
+          );
+        } else {
+          console.warn("❌ WebSocket nicht bereit für ICE candidate");
+        }
+      } else {
+        console.log("🏁 ICE candidate gathering complete für:", remoteDeviceId);
       }
     };
 
