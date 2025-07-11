@@ -1,22 +1,78 @@
-# fly.toml app configuration file generated for framelink-signaling on 2025-07-11T17:33:07+02:00
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
+# fly.toml app configuration - WEBSOCKET OPTIMIERT
 app = 'framelink-signaling'
 primary_region = 'fra'
+kill_signal = "SIGTERM"
+kill_timeout = "5s"
+
+[experimental]
+  auto_rollback = true
 
 [build]
+  # Build context
+  dockerfile = "Dockerfile"
+
+[deploy]
+  release_command = "echo 'Deploying FrameLink Signaling Server'"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
 
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = false  # WICHTIG: Für WebSocket immer an
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1    # WICHTIG: Mindestens 1 Machine
+  max_machines_running = 2    # Limit für Kosten
   processes = ['app']
+  
+  # WebSocket spezifische Konfiguration
+  [[http_service.http_options]]
+    h2_backend = false  # HTTP/1.1 für WebSocket
+    
+  # Health Check
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+    protocol = "http"
+    restart_limit = 3
+    
+    [http_service.checks.headers]
+      "User-Agent" = "Fly Health Check"
 
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
+  
+  # Wichtige Prozess-Konfiguration
+  [vm.env]
+    NODE_OPTIONS = "--max-old-space-size=896"
+    
+  # Restart Policy
+  [vm.restart_policy]
+    policy = "on-failure"
+    max_restarts = 10
+
+# Optional: Custom Domains (wenn vorhanden)
+# [[services]]
+#   protocol = "tcp"
+#   internal_port = 3000
+#   
+#   [[services.ports]]
+#     port = 80
+#     handlers = ["http"]
+#     force_https = true
+#   
+#   [[services.ports]]
+#     port = 443
+#     handlers = ["tls", "http"]
+#   
+#   [services.concurrency]
+#     type = "connections"
+#     hard_limit = 1000
+#     soft_limit = 800
