@@ -26,6 +26,51 @@ let socket;
 let cameraEnabled = true;
 let micEnabled = true;
 
+// ================================================================
+// ENHANCED TURN CONFIGURATION - Deine verbesserte Version
+// ================================================================
+
+const TURN_USERNAME = "18dd3dc42100ea8643228a68";
+const TURN_CREDENTIAL = "9u70h1tuJ9YA0ONB";
+
+const ENHANCED_ICE_SERVERS = [
+  // STUN Servers
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+
+  // UDP-TURN (oft schneller und zuverlässiger)
+  {
+    urls: "turn:global.relay.metered.ca:3478?transport=udp",
+    username: TURN_USERNAME,
+    credential: TURN_CREDENTIAL,
+  },
+  {
+    urls: "turns:global.relay.metered.ca:443?transport=udp",
+    username: TURN_USERNAME,
+    credential: TURN_CREDENTIAL,
+  },
+
+  // TCP-TURN (Fallback wenn UDP blockiert ist)
+  {
+    urls: "turn:global.relay.metered.ca:80?transport=tcp",
+    username: TURN_USERNAME,
+    credential: TURN_CREDENTIAL,
+  },
+  {
+    urls: "turns:global.relay.metered.ca:443?transport=tcp",
+    username: TURN_USERNAME,
+    credential: TURN_CREDENTIAL,
+  },
+
+  // Backup: Original Konfiguration
+  {
+    urls: "turn:global.relay.metered.ca:80",
+    username: TURN_USERNAME,
+    credential: TURN_CREDENTIAL,
+  },
+];
+
 // Status anzeigen
 function showStatus(message, color = "black") {
   console.log(message);
@@ -35,8 +80,6 @@ function showStatus(message, color = "black") {
 
 // WebSocket-Verbindung
 function connectWebSocket() {
-  // WebSocket URL
-  //änderung auf fly
   const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.fly.dev";
 
   showStatus("Verbinde mit Server...", "blue");
@@ -58,13 +101,11 @@ function connectWebSocket() {
     showStatus("Verbindung getrennt", "orange");
     startBtn.disabled = true;
     window.socket = null;
-    // Automatisch neu verbinden nach 3 Sekunden
     setTimeout(connectWebSocket, 3000);
   };
 
   socket.onmessage = async (event) => {
     try {
-      // Konvertiere Blob zu Text falls nötig
       let data;
       if (event.data instanceof Blob) {
         data = await event.data.text();
@@ -103,34 +144,16 @@ async function initMedia() {
   }
 }
 
-// PeerConnection erstellen
+// PeerConnection erstellen mit Enhanced TURN Config
 function createPeerConnection() {
+  console.log("🔧 Creating PeerConnection with Enhanced TURN Config...");
+
   peerConnection = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: "stun:stun.relay.metered.ca:80",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80",
-        username: "18dd3dc42100ea8643228a68",
-        credential: "9u70h1tuJ9YA0ONB",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-        username: "18dd3dc42100ea8643228a68",
-        credential: "9u70h1tuJ9YA0ONB",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:443",
-        username: "18dd3dc42100ea8643228a68",
-        credential: "9u70h1tuJ9YA0ONB",
-      },
-      {
-        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-        username: "18dd3dc42100ea8643228a68",
-        credential: "9u70h1tuJ9YA0ONB",
-      },
-    ],
+    iceServers: ENHANCED_ICE_SERVERS,
+    iceTransportPolicy: "all", // Erlaube alle Candidate-Typen
+    iceCandidatePoolSize: 15, // Mehr Candidates für bessere Konnektivität
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require",
   });
 
   // Lokale Tracks hinzufügen
@@ -154,8 +177,9 @@ function createPeerConnection() {
     console.log("Verbindungsstatus:", peerConnection.connectionState);
     showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
 
-    // Bei Verbindungsverlust neu verbinden
-    if (
+    if (peerConnection.connectionState === "connected") {
+      showStatus("Video Call erfolgreich verbunden!", "green");
+    } else if (
       peerConnection.connectionState === "failed" ||
       peerConnection.connectionState === "disconnected"
     ) {
@@ -169,23 +193,48 @@ function createPeerConnection() {
     }
   };
 
-  // ICE Kandidaten senden
+  // Enhanced ICE candidate handling mit detailliertem Logging
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
-      // Debug: Zeige welcher Typ verwendet wird
+      // Detailliertes Logging für TURN Debug
+      const candidate = event.candidate;
       console.log(
         "ICE Candidate Typ:",
-        event.candidate.type,
+        candidate.type,
         "Protokoll:",
-        event.candidate.protocol
+        candidate.protocol
       );
 
-      socket.send(
-        JSON.stringify({
-          type: "ice",
-          candidate: event.candidate,
-        })
+      if (candidate.type === "relay") {
+        console.log("🎉 TURN RELAY Candidate gefunden!", {
+          address: candidate.address,
+          port: candidate.port,
+          protocol: candidate.protocol,
+        });
+      }
+
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(
+          JSON.stringify({
+            type: "ice",
+            candidate: event.candidate,
+          })
+        );
+      }
+    }
+  };
+
+  // ICE connection state monitoring
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log("ICE Connection State:", peerConnection.iceConnectionState);
+
+    if (peerConnection.iceConnectionState === "connected") {
+      console.log(
+        "🎉 ICE Connection erfolgreicht - NAT traversal funktioniert!"
       );
+    } else if (peerConnection.iceConnectionState === "failed") {
+      console.error("❌ ICE Connection failed - TURN Server Problem");
+      showStatus("TURN Server Verbindung fehlgeschlagen", "red");
     }
   };
 }
@@ -199,7 +248,6 @@ async function addLocalStreamToPeerConnection() {
 
   if (peerConnection && localStream) {
     localStream.getTracks().forEach((track) => {
-      // Prüfe ob Track bereits hinzugefügt wurde
       const senders = peerConnection.getSenders();
       const trackAlreadyAdded = senders.some(
         (sender) => sender.track === track
@@ -213,45 +261,6 @@ async function addLocalStreamToPeerConnection() {
   }
 }
 
-// Remote Stream empfangen
-// peerConnection.ontrack = (event) => {
-//   console.log("Remote track empfangen:", event.streams);
-//   remoteVideo.srcObject = event.streams[0];
-//   showStatus("Verbindung hergestellt!", "green");
-// };
-
-// Verbindungsstatus überwachen
-// peerConnection.onconnectionstatechange = () => {
-//   console.log("Verbindungsstatus:", peerConnection.connectionState);
-//   showStatus(`Verbindung: ${peerConnection.connectionState}`, "blue");
-
-//   // Bei Verbindungsverlust neu verbinden
-//   if (
-//     peerConnection.connectionState === "failed" ||
-//     peerConnection.connectionState === "disconnected"
-//   ) {
-//     showStatus("Verbindung verloren - bitte neu starten", "orange");
-
-//     setTimeout(() => {
-//       if (peerConnection.connectionState === "disconnected") {
-//         showStatus("Versuche neu zu verbinden...", "blue");
-//       }
-//     }, 3000);
-//   }
-// };
-
-// ICE Candidates
-// peerConnection.onicecandidate = (event) => {
-//   if (event.candidate && socket.readyState === WebSocket.OPEN) {
-//     socket.send(
-//       JSON.stringify({
-//         type: "ice",
-//         candidate: event.candidate,
-//       })
-//     );
-//   }
-// };
-
 // Kamera an/aus
 function toggleCamera() {
   if (!localStream) return;
@@ -259,7 +268,9 @@ function toggleCamera() {
   localStream.getVideoTracks().forEach((track) => {
     track.enabled = cameraEnabled;
   });
-  toggleCameraBtn.textContent = cameraEnabled ? "Kamera aus" : "Kamera an";
+  toggleCameraBtn.textContent = cameraEnabled
+    ? "📹 Camera On"
+    : "📹 Camera Off";
   showStatus(`Kamera ${cameraEnabled ? "aktiv" : "deaktiviert"}`, "blue");
 }
 
@@ -270,7 +281,7 @@ function toggleMicrophone() {
   localStream.getAudioTracks().forEach((track) => {
     track.enabled = micEnabled;
   });
-  toggleMicBtn.textContent = micEnabled ? "Mikro aus" : "Mikro an";
+  toggleMicBtn.textContent = micEnabled ? "🎤 Mic On" : "🎤 Mic Off";
   showStatus(`Mikrofon ${micEnabled ? "aktiv" : "deaktiviert"}`, "blue");
 }
 
@@ -282,6 +293,7 @@ function endCall() {
   }
   remoteVideo.srcObject = null;
   showStatus("Anruf beendet", "red");
+
   // Buttons zurücksetzen
   startBtn.disabled = false;
   toggleCameraBtn.disabled = true;
@@ -303,7 +315,10 @@ async function startCall() {
   createPeerConnection();
 
   // Offer erstellen
-  const offer = await peerConnection.createOffer();
+  const offer = await peerConnection.createOffer({
+    offerToReceiveAudio: true,
+    offerToReceiveVideo: true,
+  });
   await peerConnection.setLocalDescription(offer);
 
   // Offer senden
@@ -358,15 +373,23 @@ async function handleIceCandidate(message) {
   }
 }
 
-// Button Event
+// Button Events
 startBtn.addEventListener("click", startCall);
 
 // App starten
 window.addEventListener("load", () => {
   connectWebSocket();
-  initMedia(); // Kamera direkt initialisieren
+  initMedia();
+
   // Button-Events
   toggleCameraBtn.addEventListener("click", toggleCamera);
   toggleMicBtn.addEventListener("click", toggleMicrophone);
   endCallBtn.addEventListener("click", endCall);
+
+  // Debug: Log TURN config on load
+  console.log("🔧 Enhanced TURN Configuration loaded:", {
+    servers: ENHANCED_ICE_SERVERS.length,
+    username: TURN_USERNAME,
+    transports: ["udp", "tcp", "original"],
+  });
 });
