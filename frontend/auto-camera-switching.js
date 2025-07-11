@@ -1,6 +1,5 @@
 /**
  * 🚀 AUTOMATIC CAMERA SWITCHING SYSTEM
- *
  * Intelligente Kamera-Umschaltung basierend auf Face Detection
  * Integriert nahtlos mit bestehender simple-room.js Infrastruktur
  */
@@ -13,21 +12,14 @@
   // ========================================
 
   const AUTO_SWITCH_CONFIG = {
-    // Hysterese Settings (verhindert schnelles Hin- und Herschalten)
-    hysteresisDelay: 1000, // ms - Mindestabstand zwischen Switches
-    faceDetectionThreshold: 0.7, // Minimum confidence für Switch
-    stabilityPeriod: 800, // ms - Gesicht muss stabil erkannt werden
-
-    // Priority System
-    confidenceBonus: 0.2, // Bonus für höhere Confidence
-    currentCameraBonus: 0.1, // Bonus für aktuell aktive Kamera (Anti-Flicker)
-
-    // Safety & Fallback (IMPROVED)
-    maxSwitchesPerMinute: 10, // Rate limiting (erhöht für Live-System)
-    autoSwitchTimeout: 30000, // ms - Auto-switch timeout
-    manualOverrideTime: 10000, // ms - Manuelle Übersteuerung gilt für
-
-    // Debug
+    hysteresisDelay: 1000,
+    faceDetectionThreshold: 0.7,
+    stabilityPeriod: 800,
+    confidenceBonus: 0.2,
+    currentCameraBonus: 0.1,
+    maxSwitchesPerMinute: 10,
+    autoSwitchTimeout: 30000,
+    manualOverrideTime: 10000,
     enableLogging: true,
     enableVisualFeedback: true,
   };
@@ -37,28 +29,17 @@
   // ========================================
 
   let autoCameraSwitching = {
-    // Core State
     enabled: true,
     isActive: false,
     currentControllingDevice: null,
-
-    // Hysterese & Timing
     lastSwitchTime: 0,
-    pendingSwitches: new Map(), // deviceId -> { timestamp, confidence, stable }
-    switchHistory: [], // für rate limiting
-
-    // Manual Override
+    pendingSwitches: new Map(),
+    switchHistory: [],
     manualOverrideUntil: 0,
     wasManuallyOverridden: false,
-
-    // Face Detection States (erweitert die bestehenden)
-    faceStates: new Map(), // deviceId -> enhanced face state
-
-    // Integration mit bestehendem System
+    faceStates: new Map(),
     originalCameraHandler: null,
     roomSystem: null,
-
-    // Debug & Analytics
     switchCount: 0,
     debugLogs: [],
   };
@@ -67,24 +48,15 @@
   // FACE DETECTION DECISION ENGINE
   // ========================================
 
-  /**
-   * Haupt-Decision Engine für automatische Kamera-Umschaltung
-   */
   function processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence) {
     if (!autoCameraSwitching.enabled) return;
-
-    // Manual Override Check
     if (isManualOverrideActive()) {
       logDebug(
         `🛑 Manual override aktiv - ignoriere Auto-Switch für ${deviceId}`
       );
       return;
     }
-
-    // Update Face State
     updateEnhancedFaceState(deviceId, hasFace, confidence);
-
-    // Decision Logic
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
       evaluateSwitchToDevice(deviceId, confidence);
     } else if (
@@ -93,14 +65,9 @@
     ) {
       evaluateSwitchAway(deviceId);
     }
-
-    // Cleanup alte pending switches
     cleanupPendingSwitches();
   }
 
-  /**
-   * Enhanced Face State Management
-   */
   function updateEnhancedFaceState(deviceId, hasFace, confidence) {
     const currentTime = Date.now();
     let state = autoCameraSwitching.faceStates.get(deviceId);
@@ -118,31 +85,24 @@
       autoCameraSwitching.faceStates.set(deviceId, state);
     }
 
-    // Update State
     const previousHasFace = state.hasFace;
     state.hasFace = hasFace;
     state.confidence = confidence;
     state.lastUpdate = currentTime;
 
-    // Stability Tracking
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
       if (!previousHasFace) {
-        // Neue Gesichtserkennung gestartet
         state.stableDetectionStart = currentTime;
         state.consecutiveDetections = 1;
         state.averageConfidence = confidence;
       } else {
-        // Fortlaufende Erkennung
         state.consecutiveDetections++;
         state.averageConfidence = (state.averageConfidence + confidence) / 2;
       }
-
-      // Stability Check
       const detectionDuration =
         currentTime - (state.stableDetectionStart || currentTime);
       state.isStable = detectionDuration >= AUTO_SWITCH_CONFIG.stabilityPeriod;
     } else {
-      // Kein Gesicht oder zu niedrige Confidence
       state.stableDetectionStart = null;
       state.consecutiveDetections = 0;
       state.isStable = false;
@@ -156,35 +116,27 @@
     });
   }
 
-  /**
-   * Evaluiert Switch TO einem Device
-   */
   function evaluateSwitchToDevice(deviceId, confidence) {
     const currentTime = Date.now();
     const state = autoCameraSwitching.faceStates.get(deviceId);
 
-    // Pre-checks
     if (!state || !state.isStable) {
       logDebug(`⏳ Warte auf stabile Detection für ${deviceId}`);
       return;
     }
-
     if (autoCameraSwitching.currentControllingDevice === deviceId) {
       logDebug(`✅ ${deviceId} hat bereits Kamera-Kontrolle`);
       return;
     }
-
     if (isInHysteresisWindow()) {
       logDebug(`🚫 Hysterese aktiv - warte bis Switch möglich`);
       return;
     }
-
     if (isRateLimited()) {
       logDebug(`🚫 Rate limit erreicht - zu viele Switches`);
       return;
     }
 
-    // Calculate Switch Priority Score
     const switchScore = calculateSwitchScore(deviceId, confidence);
     const currentScore = getCurrentDeviceScore();
 
@@ -192,22 +144,14 @@
       `🧮 Switch Score für ${deviceId}: ${switchScore.toFixed(2)} vs Current: ${currentScore.toFixed(2)}`
     );
 
-    // Decision: Should we switch?
     if (switchScore > currentScore + 0.1) {
-      // 0.1 = switch threshold
       requestAutomaticCameraSwitch(deviceId, confidence, switchScore);
     }
   }
 
-  /**
-   * Evaluiert Switch AWAY von einem Device
-   */
   function evaluateSwitchAway(deviceId) {
     logDebug(`👻 ${deviceId} verliert Gesicht - evaluiere Alternative`);
-
-    // Finde beste Alternative
     const alternatives = findBestAlternativeDevice();
-
     if (alternatives.length > 0) {
       const best = alternatives[0];
       logDebug(
@@ -219,54 +163,34 @@
     }
   }
 
-  /**
-   * Berechnet Switch Priority Score für Device
-   */
   function calculateSwitchScore(deviceId, confidence) {
     let score = confidence;
-
-    // Confidence Bonus
     if (confidence > 0.8) {
       score += AUTO_SWITCH_CONFIG.confidenceBonus;
     }
-
-    // Current Camera Bonus (Anti-Flicker)
     if (autoCameraSwitching.currentControllingDevice === deviceId) {
       score += AUTO_SWITCH_CONFIG.currentCameraBonus;
     }
-
-    // Stability Bonus
     const state = autoCameraSwitching.faceStates.get(deviceId);
     if (state && state.consecutiveDetections > 3) {
       score += 0.1;
     }
-
-    return Math.min(score, 1.0); // Cap at 1.0
+    return Math.min(score, 1.0);
   }
 
-  /**
-   * Aktueller Device Score (für Vergleich)
-   */
   function getCurrentDeviceScore() {
     const currentDevice = autoCameraSwitching.currentControllingDevice;
     if (!currentDevice) return 0;
-
     const state = autoCameraSwitching.faceStates.get(currentDevice);
     if (!state || !state.hasFace) return 0;
-
     return calculateSwitchScore(currentDevice, state.confidence);
   }
 
-  /**
-   * Findet beste Alternative zu aktuellem Device
-   */
   function findBestAlternativeDevice() {
     const alternatives = [];
-
     autoCameraSwitching.faceStates.forEach((state, deviceId) => {
       if (deviceId === autoCameraSwitching.currentControllingDevice) return;
       if (!state.hasFace || !state.isStable) return;
-
       const score = calculateSwitchScore(deviceId, state.confidence);
       alternatives.push({
         deviceId,
@@ -274,7 +198,6 @@
         score,
       });
     });
-
     return alternatives.sort((a, b) => b.score - a.score);
   }
 
@@ -290,7 +213,7 @@
   function isRateLimited() {
     const now = Date.now();
     const recentSwitches = autoCameraSwitching.switchHistory.filter(
-      (time) => now - time < 60000 // Letzte Minute
+      (time) => now - time < 60000
     );
     return recentSwitches.length >= AUTO_SWITCH_CONFIG.maxSwitchesPerMinute;
   }
@@ -302,7 +225,6 @@
   function cleanupPendingSwitches() {
     const now = Date.now();
     const timeout = AUTO_SWITCH_CONFIG.stabilityPeriod * 2;
-
     autoCameraSwitching.pendingSwitches.forEach((pendingSwitch, deviceId) => {
       if (now - pendingSwitch.timestamp > timeout) {
         autoCameraSwitching.pendingSwitches.delete(deviceId);
@@ -315,88 +237,109 @@
   // CAMERA SWITCH EXECUTION
   // ========================================
 
-  /**
-   * Führt automatischen Kamera-Switch aus
-   */
   function requestAutomaticCameraSwitch(deviceId, confidence, score) {
     const currentTime = Date.now();
-
     logDebug(`🚀 Führe automatischen Switch aus:`, {
       from: autoCameraSwitching.currentControllingDevice || "none",
       to: deviceId,
       confidence: confidence.toFixed(2),
       score: score.toFixed(2),
     });
-
-    // Update State
     autoCameraSwitching.lastSwitchTime = currentTime;
     autoCameraSwitching.currentControllingDevice = deviceId;
     autoCameraSwitching.switchCount++;
     autoCameraSwitching.switchHistory.push(currentTime);
-
-    // Keep only recent switch history
     autoCameraSwitching.switchHistory =
       autoCameraSwitching.switchHistory.filter(
         (time) => currentTime - time < 60000
       );
-
-    // Integration mit bestehendem Camera System
     executeIntegratedCameraSwitch(deviceId, {
       reason: "face-detection",
       confidence,
       score,
       automatic: true,
     });
-
-    // Visual Feedback
     if (AUTO_SWITCH_CONFIG.enableVisualFeedback) {
       showCameraSwitchFeedback(deviceId, confidence);
     }
-
-    // Event für andere Systeme
     dispatchCameraSwitchEvent(deviceId, "automatic");
   }
 
-  /**
-   * Integration mit bestehendem simple-room.js Camera System
-   */
+  // ================================================================
+  // 🤖 ENHANCED AUTO-CAMERA-SWITCHING.JS INTEGRATION
+  // ================================================================
+
   function executeIntegratedCameraSwitch(deviceId, metadata = {}) {
     try {
-      // Suche bestehende Camera-Control Funktion
-      if (window.roomSystem && window.roomSystem.switchCameraTo) {
-        logDebug(`🔗 Nutze roomSystem.switchCameraTo für ${deviceId}`);
-        window.roomSystem.switchCameraTo(deviceId, metadata);
-      } else if (window.switchCamera) {
-        logDebug(`🔗 Nutze globale switchCamera für ${deviceId}`);
-        window.switchCamera(deviceId);
-      } else {
-        // Fallback: WebSocket Message senden
-        logDebug(`📡 Fallback: Sende WebSocket Camera Switch für ${deviceId}`);
-        sendCameraSwitchMessage(deviceId, metadata);
+      // Method 1: Enhanced Room System (PREFERRED)
+      if (window.enhancedRoomSystem?.roomManager) {
+        logDebug(`🔗 Using enhancedRoomSystem for ${deviceId}`);
+        if (window.frameLink?.api?.sendMessage) {
+          const message = {
+            type: "camera-request",
+            roomId:
+              window.enhancedRoomSystem.roomManager.roomId ||
+              window.roomState?.roomId,
+            deviceId: deviceId,
+            fromDeviceId: window.roomState?.deviceId || "auto-switch",
+            metadata: {
+              ...metadata,
+              automatic: true,
+              timestamp: Date.now(),
+              reason: "face-detection-auto-switch",
+            },
+          };
+          window.frameLink.api.sendMessage(message);
+          logDebug(`📤 Enhanced camera request sent for ${deviceId}`, message);
+          return;
+        }
       }
-    } catch (error) {
-      console.error("❌ Camera Switch Integration Error:", error);
-    }
-  }
-
-  /**
-   * WebSocket Camera Switch Message (Fallback)
-   */
-  function sendCameraSwitchMessage(deviceId, metadata = {}) {
-    if (window.socket && window.socket.readyState === WebSocket.OPEN) {
-      const message = {
-        type: "camera-switch-request",
-        targetDevice: deviceId,
-        requestingDevice: window.roomSystem?.localDeviceId || "unknown",
-        metadata: {
-          ...metadata,
-          timestamp: Date.now(),
+      // Method 2: Direct frameLink API (FALLBACK)
+      if (window.frameLink?.api?.sendMessage) {
+        const message = {
+          type: "camera-request",
+          deviceId: deviceId,
           automatic: true,
-        },
-      };
-
-      window.socket.send(JSON.stringify(message));
-      logDebug(`📤 Camera Switch Message gesendet:`, message);
+          metadata: {
+            ...metadata,
+            timestamp: Date.now(),
+            method: "direct-framelink",
+          },
+        };
+        window.frameLink.api.sendMessage(message);
+        logDebug(`📤 Direct frameLink camera request for ${deviceId}`, message);
+        return;
+      }
+      // Method 3: Legacy WebSocket (LAST RESORT)
+      if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+        const message = {
+          type: "camera-request",
+          deviceId: deviceId,
+          automatic: true,
+          metadata: {
+            ...metadata,
+            timestamp: Date.now(),
+            method: "legacy-websocket",
+          },
+        };
+        window.socket.send(JSON.stringify(message));
+        logDebug(`📤 Legacy WebSocket camera request for ${deviceId}`, message);
+        return;
+      }
+      // Method 4: Manual UI Trigger (DESPERATE FALLBACK)
+      const cameraButton =
+        document.querySelector(`[data-device="${deviceId}"]`) ||
+        document.querySelector(`[onclick*="${deviceId}"]`);
+      if (cameraButton) {
+        logDebug(`🖱️ Triggering manual camera button for ${deviceId}`);
+        cameraButton.click();
+        return;
+      }
+      logDebug(
+        `⚠️ No available method to execute camera switch for ${deviceId}`
+      );
+    } catch (error) {
+      logDebug(`❌ Camera switch execution error:`, error);
     }
   }
 
@@ -405,7 +348,6 @@
   // ========================================
 
   function showCameraSwitchFeedback(deviceId, confidence) {
-    // UI Feedback (toast-style notification)
     const feedback = document.createElement("div");
     feedback.style.cssText = `
       position: fixed;
@@ -421,13 +363,10 @@
       z-index: 10000;
       animation: slideIn 0.3s ease-out;
     `;
-
     feedback.innerHTML = `
       🎥 Auto-Switch zu ${deviceId}
       <br><small>Face detected (${(confidence * 100).toFixed(0)}%)</small>
     `;
-
-    // CSS Animation
     if (!document.querySelector("#autoSwitchStyles")) {
       const styles = document.createElement("style");
       styles.id = "autoSwitchStyles";
@@ -439,10 +378,7 @@
       `;
       document.head.appendChild(styles);
     }
-
     document.body.appendChild(feedback);
-
-    // Auto-remove after 3 seconds
     setTimeout(() => {
       feedback.style.animation = "slideIn 0.3s ease-out reverse";
       setTimeout(() => feedback.remove(), 300);
@@ -459,7 +395,6 @@
           autoCameraSwitching.faceStates.get(deviceId)?.confidence || 0,
       },
     });
-
     window.dispatchEvent(event);
     logDebug(`📢 Camera Switch Event dispatched:`, event.detail);
   }
@@ -468,21 +403,13 @@
   // MANUAL OVERRIDE & CONTROL
   // ========================================
 
-  /**
-   * Setzt Manual Override (z.B. wenn User manuell switcht)
-   */
   function setManualOverride(duration = AUTO_SWITCH_CONFIG.manualOverrideTime) {
     autoCameraSwitching.manualOverrideUntil = Date.now() + duration;
     autoCameraSwitching.wasManuallyOverridden = true;
-
     logDebug(`🛑 Manual Override aktiviert für ${duration}ms`);
   }
 
-  /**
-   * Public API für externe Kontrolle
-   */
   window.autoCameraSwitching = {
-    // Status & Control
     isEnabled: () => autoCameraSwitching.enabled,
     enable: () => {
       autoCameraSwitching.enabled = true;
@@ -492,15 +419,11 @@
       autoCameraSwitching.enabled = false;
       logDebug("🔇 Automatic Camera Switching deaktiviert");
     },
-
-    // Manual Override
     setManualOverride,
     clearManualOverride: () => {
       autoCameraSwitching.manualOverrideUntil = 0;
       logDebug("🔓 Manual Override aufgehoben");
     },
-
-    // Status Information
     getStatus: () => ({
       enabled: autoCameraSwitching.enabled,
       active: autoCameraSwitching.isActive,
@@ -509,14 +432,10 @@
       switchCount: autoCameraSwitching.switchCount,
       faceStates: Object.fromEntries(autoCameraSwitching.faceStates),
     }),
-
-    // Configuration
     updateConfig: (newConfig) => {
       Object.assign(AUTO_SWITCH_CONFIG, newConfig);
       logDebug("⚙️ Configuration updated:", newConfig);
     },
-
-    // Debug
     debug: {
       showStates: () => {
         console.table(Object.fromEntries(autoCameraSwitching.faceStates));
@@ -526,7 +445,6 @@
         autoCameraSwitching.switchHistory = [];
         autoCameraSwitching.switchCount = 0;
       },
-      // NEUE DEBUG TOOLS
       testAutoSwitch: (
         deviceId = "test-device",
         hasFace = true,
@@ -561,80 +479,160 @@
         console.log(`🚀 Force Camera Switch zu: ${deviceId}`);
         requestAutomaticCameraSwitch(deviceId, 0.9, 1.0);
       },
+      // ENHANCED DEBUG TOOLS
+      showIntegrationStatus: debugIntegrationStatus,
+      testIntegration: testAutoSwitchIntegration,
+      testFaceDetection: (
+        deviceId = "manual-test",
+        hasFace = true,
+        confidence = 0.85
+      ) => {
+        logDebug(`🧪 Manual Face Detection Test: ${deviceId}`);
+        processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+      },
+      forceIntegrationSetup: () => {
+        logDebug("🔧 Force re-running integration setup");
+        integrateWithFaceDetection();
+        integrateWithManualControls();
+      },
+      showFaceStates: () => {
+        if (window.faceDetectionStates) {
+          console.table(Object.fromEntries(window.faceDetectionStates));
+        } else if (autoCameraSwitching.faceStates) {
+          console.table(Object.fromEntries(autoCameraSwitching.faceStates));
+        } else {
+          logDebug("❌ No face detection states found");
+        }
+      },
     },
-
-    // Internal (für Integration)
     _processFaceDetection: processFaceDetectionForAutoSwitch,
   };
 
   // ========================================
-  // INTEGRATION & INITIALIZATION
+  // ENHANCED INTEGRATION
   // ========================================
 
-  /**
-   * Integriert mit bestehendem Face Detection System (VERBESSERTE VERSION)
-   */
   function integrateWithFaceDetection() {
-    logDebug("🔧 Starte Face Detection Integration...");
+    logDebug("🔧 Starte Enhanced Face Detection Integration...");
 
-    // Method 1: Hook Window Events
     window.addEventListener("face-detection-update", (event) => {
       logDebug("📥 Face Detection Window Event empfangen:", event.detail);
       const { deviceId, hasFace, confidence } = event.detail;
       processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
     });
 
-    // Method 2: Hook in bestehende processFaceDetectionResults Funktion
+    if (window.frameLink && window.frameLink.events) {
+      window.frameLink.events.addEventListener(
+        "face-detection-change",
+        (event) => {
+          logDebug("📥 FrameLink Face Detection Event:", event.detail);
+          const { deviceId, hasFace, confidence } = event.detail;
+          processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+        }
+      );
+      window.frameLink.events.addEventListener(
+        "auto-switch-face-detection",
+        (event) => {
+          logDebug("📥 Auto-Switch Specific Event:", event.detail);
+          const { deviceId, hasFace, confidence } = event.detail;
+          processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+        }
+      );
+    }
+
+    window.addEventListener("face-detection-for-auto-switch", (event) => {
+      logDebug("📥 Auto-Switch Bridge Event:", event.detail);
+      const { deviceId, hasFace, confidence } = event.detail;
+      processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+    });
+
     const attempts = [
+      () => hookIntoEnhancedFaceDetection(),
       () => hookIntoFaceDetectionFunction(),
       () => hookIntoNotifyFaceDetectionChange(),
       () => setupPollingIntegration(),
+      () => setupDirectBridgeIntegration(),
     ];
 
     attempts.forEach((attempt, index) => {
       try {
         attempt();
-        logDebug(`✅ Integration Method ${index + 1} erfolgreich`);
+        logDebug(`✅ Enhanced Integration Method ${index + 1} erfolgreich`);
       } catch (error) {
         logDebug(
-          `⚠️ Integration Method ${index + 1} fehlgeschlagen:`,
+          `⚠️ Enhanced Integration Method ${index + 1} fehlgeschlagen:`,
           error.message
         );
       }
     });
 
-    logDebug("🔗 Face Detection Integration abgeschlossen");
+    logDebug("🔗 Enhanced Face Detection Integration abgeschlossen");
   }
 
-  /**
-   * Hook in Face Detection Results Function (IMPROVED)
-   */
-  function hookIntoFaceDetectionFunction() {
-    // Warte bis Face Detection geladen ist
-    const checkInterval = setInterval(() => {
-      if (window.faceDetectionSystem) {
-        clearInterval(checkInterval);
+  function hookIntoEnhancedFaceDetection() {
+    logDebug("🔗 Trying Enhanced Face Detection Hook...");
+    const checkForEnhancedSystem = () => {
+      if (window.enhancedRoomSystem?.faceDetectionManager) {
+        const manager = window.enhancedRoomSystem.faceDetectionManager;
+        if (manager.processFaceDetectionResults) {
+          const originalMethod =
+            manager.processFaceDetectionResults.bind(manager);
+          manager.processFaceDetectionResults = function (deviceId, results) {
+            const result = originalMethod(deviceId, results);
+            let hasFace = false;
+            let confidence = 0;
+            if (results?.detections?.length > 0) {
+              hasFace = true;
+              const detection = results.detections[0];
+              confidence = detection.score?.[0] || detection.score || 0.8;
+              if (Array.isArray(confidence)) {
+                confidence = confidence[0] || 0.8;
+              }
+            }
+            logDebug(
+              `🔗 Enhanced Hook: ${deviceId} = ${hasFace} (${confidence})`
+            );
+            processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+            return result;
+          };
+          logDebug("✅ Enhanced Face Detection Manager hooked");
+          return true;
+        }
+      }
+      return false;
+    };
+    if (!checkForEnhancedSystem()) {
+      let attempts = 0;
+      const retryInterval = setInterval(() => {
+        attempts++;
+        if (checkForEnhancedSystem() || attempts >= 20) {
+          clearInterval(retryInterval);
+          if (checkForEnhancedSystem()) {
+            logDebug("✅ Enhanced system hook successful after retry");
+          }
+        }
+      }, 500);
+    }
+  }
 
-        // Method 1: Hook processFaceDetectionResults (HAUPT-INTEGRATION)
+  function hookIntoFaceDetectionFunction() {
+    logDebug("🔗 Trying Face Detection Function Hook...");
+    const checkInterval = setInterval(() => {
+      if (window.faceDetectionSystem || window.enhancedRoomSystem) {
+        clearInterval(checkInterval);
         if (typeof window.processFaceDetectionResults === "function") {
           const originalFunction = window.processFaceDetectionResults;
           window.processFaceDetectionResults = function (deviceId, results) {
-            // Original Function aufrufen
             const result = originalFunction.call(this, deviceId, results);
-
-            // Extract Face Data für Auto-Switch
             let hasFace = false;
             let confidence = 0;
-
             if (
               results &&
               results.detections &&
               results.detections.length > 0
             ) {
               hasFace = true;
-              confidence = 0.8; // Fallback confidence
-
-              // Versuche echte Confidence zu extrahieren
+              confidence = 0.8;
               const detection = results.detections[0];
               if (
                 detection.score &&
@@ -649,23 +647,18 @@
                 confidence = detection.score;
               }
             }
-
             logDebug(`🔗 REAL Face Detection Hook - ${deviceId}:`, {
               hasFace,
               confidence,
               faces: results?.detections?.length || 0,
             });
             processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
-
             return result;
           };
-
           logDebug(
             "✅ processFaceDetectionResults Hook installiert (MAIN INTEGRATION)"
           );
         }
-
-        // Method 2: Hook notifyFaceDetectionChange (SECONDARY)
         if (typeof window.notifyFaceDetectionChange === "function") {
           const originalNotify = window.notifyFaceDetectionChange;
           window.notifyFaceDetectionChange = function (
@@ -686,7 +679,6 @@
           };
           logDebug("✅ notifyFaceDetectionChange Hook installiert (SECONDARY)");
         } else {
-          // Create notifyFaceDetectionChange wenn nicht vorhanden
           window.notifyFaceDetectionChange = function (
             deviceId,
             hasFace,
@@ -704,9 +696,7 @@
           };
           logDebug("✅ notifyFaceDetectionChange erstellt (NEW)");
         }
-
-        // Method 3: Hook in faceDetectionSystem falls verfügbar
-        if (window.faceDetectionSystem._processFaceDetection) {
+        if (window.faceDetectionSystem?._processFaceDetection) {
           const originalProcessor =
             window.faceDetectionSystem._processFaceDetection;
           window.faceDetectionSystem._processFaceDetection = function (
@@ -714,38 +704,27 @@
             hasFace,
             confidence
           ) {
-            // Original Face Detection
             const result = originalProcessor.call(
               this,
               deviceId,
               hasFace,
               confidence
             );
-
-            // Automatic Camera Switching
             logDebug(`🎭 faceDetectionSystem Hook - ${deviceId}:`, {
               hasFace,
               confidence,
             });
             processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
-
             return result;
           };
-
           logDebug("✅ faceDetectionSystem Hook installiert (TERTIARY)");
         }
       }
     }, 500);
-
-    // Timeout nach 10 Sekunden
     setTimeout(() => clearInterval(checkInterval), 10000);
   }
 
-  /**
-   * Hook in notifyFaceDetectionChange function
-   */
   function hookIntoNotifyFaceDetectionChange() {
-    // Globale notifyFaceDetectionChange Funktion abfangen
     if (typeof window.notifyFaceDetectionChange === "function") {
       const originalNotify = window.notifyFaceDetectionChange;
       window.notifyFaceDetectionChange = function (
@@ -753,46 +732,32 @@
         hasFace,
         confidence
       ) {
-        // Original Notification
         const result = originalNotify.call(this, deviceId, hasFace, confidence);
-
-        // Auto-Switch Processing
         logDebug(`🔔 notifyFaceDetectionChange Hook - ${deviceId}:`, {
           hasFace,
           confidence,
         });
         processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
-
         return result;
       };
-
       logDebug("✅ notifyFaceDetectionChange Hook installiert");
     }
   }
 
-  /**
-   * Polling-basierte Integration als Fallback
-   */
   function setupPollingIntegration() {
-    // Fallback: Polling der Face Detection States
     setInterval(() => {
       if (window.faceDetectionStates) {
         window.faceDetectionStates.forEach((state, deviceId) => {
           const lastUpdate = state.lastUpdate || 0;
           const timeSinceUpdate = Date.now() - lastUpdate;
-
-          // Nur verarbeiten wenn kürzlich updated (innerhalb 1 Sekunde)
           if (timeSinceUpdate < 1000) {
             const lastProcessed =
               autoCameraSwitching.faceStates.get(deviceId)?.lastUpdate || 0;
-
-            // Nur verarbeiten wenn noch nicht verarbeitet
             if (lastUpdate > lastProcessed) {
               logDebug(`🔄 Polling Face Detection State - ${deviceId}:`, {
                 hasFace: state.hasFace,
                 confidence: state.confidence,
               });
-
               processFaceDetectionForAutoSwitch(
                 deviceId,
                 state.hasFace,
@@ -802,34 +767,185 @@
           }
         });
       }
-    }, 200); // Alle 200ms prüfen
-
+    }, 200);
     logDebug("✅ Polling Integration aktiviert (Fallback)");
   }
 
-  /**
-   * Integriert mit Manual Camera Controls (für Override Detection)
-   */
+  function setupDirectBridgeIntegration() {
+    logDebug("🔗 Setting up Direct Bridge Integration...");
+    window.processFaceDetectionForAutoSwitch = function (
+      deviceId,
+      hasFace,
+      confidence
+    ) {
+      logDebug(
+        `🌉 Direct Bridge Call: ${deviceId} = ${hasFace} (${confidence})`
+      );
+      processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+    };
+    window.notifyAutoSwitchFaceDetection = function (
+      deviceId,
+      hasFace,
+      confidence,
+      metadata = {}
+    ) {
+      logDebug(`🌉 Enhanced Bridge Call: ${deviceId} = ${hasFace}`, {
+        confidence,
+        metadata,
+      });
+      processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+    };
+    logDebug("✅ Direct Bridge Integration completed");
+  }
+
   function integrateWithManualControls() {
-    // Hook bestehende Camera Control Buttons
+    logDebug("🖱️ Setting up Enhanced Manual Controls Integration...");
     document.addEventListener("click", (event) => {
       const target = event.target;
-
-      // Erkenne manuelle Camera Switch Buttons
-      if (
-        target.matches(
-          "[data-device-camera], .camera-switch-btn, .device-camera-btn"
-        ) ||
-        target.closest(
-          "[data-device-camera], .camera-switch-btn, .device-camera-btn"
-        )
-      ) {
-        logDebug("🖱️ Manueller Camera Switch erkannt - aktiviere Override");
+      const buttonSelectors = [
+        "[data-device-camera]",
+        ".camera-switch-btn",
+        ".device-camera-btn",
+        "#take-camera",
+        "[id*='camera']",
+        "[onclick*='camera']",
+        "[data-device]",
+      ];
+      let isManualCameraControl = false;
+      for (const selector of buttonSelectors) {
+        if (target.matches(selector) || target.closest(selector)) {
+          isManualCameraControl = true;
+          break;
+        }
+      }
+      if (isManualCameraControl) {
+        logDebug(
+          "🖱️ Enhanced manual camera switch detected - aktiviere Override"
+        );
+        setManualOverride();
+        const deviceId =
+          target.dataset?.device ||
+          target.dataset?.deviceId ||
+          target.closest("[data-device]")?.dataset?.device;
+        if (deviceId) {
+          logDebug(`🎯 Manual switch target detected: ${deviceId}`);
+          if (autoCameraSwitching) {
+            autoCameraSwitching.currentControllingDevice = deviceId;
+          }
+        }
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.ctrlKey && event.key >= "1" && event.key <= "9") {
+        logDebug(`⌨️ Keyboard camera switch detected: Ctrl+${event.key}`);
         setManualOverride();
       }
     });
+    logDebug("🔗 Enhanced Manual Controls Integration abgeschlossen");
+  }
 
-    logDebug("🔗 Manual Controls Integration abgeschlossen");
+  function debugIntegrationStatus() {
+    logDebug("🔍 =================================");
+    logDebug("🔍 AUTO-SWITCH INTEGRATION STATUS");
+    logDebug("🔍 =================================");
+    logDebug("🎭 Face Detection Systems:");
+    logDebug("  window.faceDetectionSystem:", !!window.faceDetectionSystem);
+    logDebug("  window.faceDetectionStates:", !!window.faceDetectionStates);
+    logDebug("  window.enhancedRoomSystem:", !!window.enhancedRoomSystem);
+    logDebug(
+      "  window.enhancedRoomSystem.faceDetectionManager:",
+      !!window.enhancedRoomSystem?.faceDetectionManager
+    );
+    logDebug("🔗 Integration Functions:");
+    logDebug(
+      "  window.processFaceDetectionResults:",
+      typeof window.processFaceDetectionResults
+    );
+    logDebug(
+      "  window.notifyFaceDetectionChange:",
+      typeof window.notifyFaceDetectionChange
+    );
+    logDebug(
+      "  window.processFaceDetectionForAutoSwitch:",
+      typeof window.processFaceDetectionForAutoSwitch
+    );
+    logDebug(
+      "  window.notifyAutoSwitchFaceDetection:",
+      typeof window.notifyAutoSwitchFaceDetection
+    );
+    logDebug("🏠 Room System:");
+    logDebug("  window.roomState:", !!window.roomState);
+    logDebug("  window.frameLink:", !!window.frameLink);
+    logDebug("  window.frameLink.api:", !!window.frameLink?.api);
+    logDebug("  window.frameLink.events:", !!window.frameLink?.events);
+    logDebug("📡 Communication:");
+    logDebug("  window.socket:", !!window.socket);
+    logDebug("  socket.readyState:", window.socket?.readyState);
+    logDebug(
+      "  frameLink.api.sendMessage:",
+      typeof window.frameLink?.api?.sendMessage
+    );
+    logDebug("🤖 Auto-Switch State:");
+    logDebug("  autoCameraSwitching.enabled:", autoCameraSwitching?.enabled);
+    logDebug("  autoCameraSwitching.isActive:", autoCameraSwitching?.isActive);
+    logDebug(
+      "  autoCameraSwitching.currentControllingDevice:",
+      autoCameraSwitching?.currentControllingDevice
+    );
+    logDebug("🔍 =================================");
+  }
+
+  function testAutoSwitchIntegration() {
+    logDebug("🧪 =================================");
+    logDebug("🧪 TESTING AUTO-SWITCH INTEGRATION");
+    logDebug("🧪 =================================");
+    try {
+      logDebug("🧪 Test 1: Basic processFaceDetectionForAutoSwitch call");
+      processFaceDetectionForAutoSwitch("test-device-1", true, 0.85);
+      logDebug("✅ Test 1 passed");
+    } catch (error) {
+      logDebug("❌ Test 1 failed:", error.message);
+    }
+    try {
+      logDebug("🧪 Test 2: Global bridge functions");
+      if (window.notifyAutoSwitchFaceDetection) {
+        window.notifyAutoSwitchFaceDetection("test-device-2", true, 0.9);
+        logDebug("✅ Test 2 passed");
+      } else {
+        logDebug(
+          "❌ Test 2 failed: notifyAutoSwitchFaceDetection not available"
+        );
+      }
+    } catch (error) {
+      logDebug("❌ Test 2 failed:", error.message);
+    }
+    try {
+      logDebug("🧪 Test 3: FrameLink events");
+      if (window.frameLink?.events) {
+        window.frameLink.events.dispatchEvent(
+          new CustomEvent("face-detection-change", {
+            detail: {
+              deviceId: "test-device-3",
+              hasFace: true,
+              confidence: 0.75,
+            },
+          })
+        );
+        logDebug("✅ Test 3 passed");
+      } else {
+        logDebug("❌ Test 3 failed: frameLink.events not available");
+      }
+    } catch (error) {
+      logDebug("❌ Test 3 failed:", error.message);
+    }
+    try {
+      logDebug("🧪 Test 4: Camera switch execution");
+      executeIntegratedCameraSwitch("test-device-4", { test: true });
+      logDebug("✅ Test 4 passed");
+    } catch (error) {
+      logDebug("❌ Test 4 failed:", error.message);
+    }
+    logDebug("🧪 =================================");
   }
 
   // ========================================
@@ -838,17 +954,12 @@
 
   function logDebug(message, data = null) {
     if (!AUTO_SWITCH_CONFIG.enableLogging) return;
-
     const timestamp = new Date().toLocaleTimeString();
     const logEntry = { timestamp, message, data };
-
     autoCameraSwitching.debugLogs.push(logEntry);
-
-    // Keep only last 100 entries
     if (autoCameraSwitching.debugLogs.length > 100) {
       autoCameraSwitching.debugLogs.shift();
     }
-
     if (data) {
       console.log(`[Auto-Switch ${timestamp}] ${message}`, data);
     } else {
@@ -860,83 +971,30 @@
   // INITIALIZATION
   // ========================================
 
-  function initializeAutoCameraSwitching() {
-    logDebug("🚀 Initialisiere Automatic Camera Switching System...");
-
-    // Warte bis DOM und andere Systeme bereit sind
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", () => {
-        setTimeout(delayedInitialization, 1000);
-      });
-    } else {
-      setTimeout(delayedInitialization, 1000);
-    }
-  }
-
-  function delayedInitialization() {
-    // Integration mit bestehenden Systemen
+  function enhancedDelayedInitialization() {
+    logDebug("🚀 Enhanced Auto-Switch Initialization starting...");
     integrateWithFaceDetection();
     integrateWithManualControls();
-
-    // System als aktiv markieren
     autoCameraSwitching.isActive = true;
-
-    logDebug("✅ Automatic Camera Switching System bereit!");
-    logDebug("📊 Configuration:", AUTO_SWITCH_CONFIG);
-
-    // Test Integration
+    logDebug("✅ Enhanced Automatic Camera Switching System bereit!");
+    logDebug("📊 Enhanced Configuration:", AUTO_SWITCH_CONFIG);
     setTimeout(() => {
-      testIntegration();
+      debugIntegrationStatus();
+      testAutoSwitchIntegration();
     }, 2000);
-
-    // Welcome Message
-    console.log("🚀 AUTOMATIC CAMERA SWITCHING SYSTEM ACTIVATED! 🚀");
-    console.log("📱 Nutze window.autoCameraSwitching für Kontrolle");
+    console.log("🚀 ENHANCED AUTOMATIC CAMERA SWITCHING SYSTEM ACTIVATED! 🚀");
     console.log(
-      "🎛️ Verfügbare Commands: enable(), disable(), getStatus(), debug.showStates()"
+      "📱 Commands: window.autoCameraSwitching.debug.showIntegrationStatus()"
     );
+    console.log("🧪 Test: window.autoCameraSwitching.debug.testIntegration()");
+    console.log("🎭 States: window.autoCameraSwitching.debug.showFaceStates()");
   }
 
-  /**
-   * Test Integration nach dem Start
-   */
-  function testIntegration() {
-    logDebug("🧪 Teste Integration...");
-
-    // Test 1: Face Detection System verfügbar?
-    if (window.faceDetectionSystem) {
-      logDebug("✅ window.faceDetectionSystem gefunden");
-    } else {
-      logDebug("⚠️ window.faceDetectionSystem nicht gefunden");
-    }
-
-    // Test 2: Face Detection States verfügbar?
-    if (window.faceDetectionStates) {
-      logDebug(
-        "✅ window.faceDetectionStates gefunden:",
-        window.faceDetectionStates.size + " devices"
-      );
-    } else {
-      logDebug("⚠️ window.faceDetectionStates nicht gefunden");
-    }
-
-    // Test 3: Room System verfügbar?
-    if (window.roomSystem) {
-      logDebug("✅ window.roomSystem gefunden");
-    } else {
-      logDebug("⚠️ window.roomSystem nicht gefunden");
-    }
-
-    // Test 4: Manual Test der Auto-Switch Funktion
-    logDebug("🧪 Teste processFaceDetectionForAutoSwitch...");
-    try {
-      processFaceDetectionForAutoSwitch("test-device", true, 0.85);
-      logDebug("✅ Auto-Switch Funktion läuft");
-    } catch (error) {
-      logDebug("❌ Auto-Switch Funktion Error:", error);
-    }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      setTimeout(enhancedDelayedInitialization, 1000);
+    });
+  } else {
+    setTimeout(enhancedDelayedInitialization, 1000);
   }
-
-  // Start das System
-  initializeAutoCameraSwitching();
 })();
