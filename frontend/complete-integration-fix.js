@@ -40,7 +40,7 @@ function createEmergencyWebSocket() {
   console.log("🚨 Creating emergency WebSocket connection");
 
   try {
-    const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.glitch.me";
+    const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.fly.dev";
     window.socket = new WebSocket(wsUrl);
 
     window.socket.onopen = () => {
