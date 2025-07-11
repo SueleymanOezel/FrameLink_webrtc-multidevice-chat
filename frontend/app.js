@@ -35,8 +35,9 @@ function showStatus(message, color = "black") {
 
 // WebSocket-Verbindung
 function connectWebSocket() {
-  // WebSocket URL - kann über Umgebungsvariable überschrieben werden
-  const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.glitch.me";
+  // WebSocket URL
+  //änderung auf fly
+  const wsUrl = window.WEBSOCKET_URL || "wss://framelink-signaling.fly.dev";
 
   showStatus("Verbinde mit Server...", "blue");
 
