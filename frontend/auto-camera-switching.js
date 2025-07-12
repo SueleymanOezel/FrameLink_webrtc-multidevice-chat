@@ -631,25 +631,34 @@
       if (window.enhancedRoomSystem?.faceDetectionManager) {
         const manager = window.enhancedRoomSystem.faceDetectionManager;
         if (manager.processFaceDetectionResults) {
-          const originalMethod =
-            manager.processFaceDetectionResults.bind(manager);
+          const original = manager.processFaceDetectionResults.bind(manager);
           manager.processFaceDetectionResults = function (deviceId, results) {
-            const result = originalMethod(deviceId, results);
+            const result = original(deviceId, results);
+
             let hasFace = false;
             let confidence = 0;
             if (results?.detections?.length > 0) {
               hasFace = true;
-              const detection = results.detections[0];
-              confidence = detection.score?.[0] || detection.score || 0.8;
-              if (Array.isArray(confidence)) {
-                confidence = confidence[0] || 0.8;
-              }
+              let score = results.detections[0].score;
+              confidence = Array.isArray(score) ? score[0] : score || 0.8;
             }
-            logDebug(
-              `🔗 Enhanced Hook: ${deviceId} = ${hasFace} (${confidence})`
-            );
+
+            const wasController =
+              autoCameraSwitching.currentControllingDevice === deviceId;
+            const willController =
+              hasFace &&
+              confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold;
+            if (!wasController && willController) {
+              logDebug(
+                `➡️ Hook: wechsle Kontrolle auf ${deviceId} (conf=${confidence.toFixed(2)})`
+              );
+            } else if (wasController && !willController) {
+              logDebug(`⬅️ Hook: gebe Kontrolle von ${deviceId} ab`);
+            }
+
+            // und dann weiter zur AutoSwitch-Logik
             processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
-            return result;
+            return ret;
           };
           logDebug("✅ Enhanced Face Detection Manager hooked");
           return true;
