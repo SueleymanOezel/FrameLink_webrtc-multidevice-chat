@@ -7,7 +7,8 @@
     { "src": "simple-room.js", "use": "@vercel/static" },
     { "src": "auto-camera-switching.js", "use": "@vercel/static" },
     { "src": "websocket-debug-fix.js", "use": "@vercel/static" },
-    { "src": "models/*", "use": "@vercel/static" }
+    { "src": "models/*", "use": "@vercel/static" },
+    { "src": "config/**/*", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/(.*)", "dest": "/$1" }
