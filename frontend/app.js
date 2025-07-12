@@ -19,7 +19,7 @@ window.frameLink = {
     webSocketReady: false,
     localStream: null,
     currentCall: null,
-    debug: true,
+    debug: DEBUG,
   },
 
   // Event system for inter-module communication
@@ -36,48 +36,8 @@ window.frameLink = {
 // 🌐 UNIFIED TURN CONFIGURATION
 // ================================================================
 
-const FRAMELINK_TURN_CONFIG = {
-  username: "18dd3dc42100ea8643228a68",
-  credential: "9u70h1tuJ9YA0ONB",
-
-  servers: [
-    // STUN Servers
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-
-    // UDP-TURN (Primary)
-    {
-      urls: "turn:global.relay.metered.ca:3478?transport=udp",
-      username: "18dd3dc42100ea8643228a68",
-      credential: "9u70h1tuJ9YA0ONB",
-    },
-    {
-      urls: "turns:global.relay.metered.ca:443?transport=udp",
-      username: "18dd3dc42100ea8643228a68",
-      credential: "9u70h1tuJ9YA0ONB",
-    },
-
-    // TCP-TURN (Fallback)
-    {
-      urls: "turn:global.relay.metered.ca:80?transport=tcp",
-      username: "18dd3dc42100ea8643228a68",
-      credential: "9u70h1tuJ9YA0ONB",
-    },
-    {
-      urls: "turns:global.relay.metered.ca:443?transport=tcp",
-      username: "18dd3dc42100ea8643228a68",
-      credential: "9u70h1tuJ9YA0ONB",
-    },
-
-    // Backup
-    {
-      urls: "turn:global.relay.metered.ca:80",
-      username: "18dd3dc42100ea8643228a68",
-      credential: "9u70h1tuJ9YA0ONB",
-    },
-  ],
-};
+import { TURN_CONFIG, DEBUG } from "./config";
+import { WS_URLS } from "./config/index.js";
 
 // ================================================================
 // 🏭 PEERCONNECTION FACTORY
@@ -86,7 +46,7 @@ const FRAMELINK_TURN_CONFIG = {
 class PeerConnectionFactory {
   static create(options = {}) {
     const defaultConfig = {
-      iceServers: FRAMELINK_TURN_CONFIG.servers,
+      iceServers: TURN_CONFIG.servers,
       iceTransportPolicy: "all",
       iceCandidatePoolSize: 15,
       bundlePolicy: "max-bundle",
@@ -94,7 +54,7 @@ class PeerConnectionFactory {
     };
 
     const config = { ...defaultConfig, ...options };
-    const peerConnection = new RTCPeerConnection(config);
+    const peerConnection = new RTCPeerConnection(defaultConfig);
 
     // Enhanced logging for all connections
     peerConnection.onicecandidate = (event) => {
@@ -214,9 +174,7 @@ class WebSocketManager {
   }
 
   getWebSocketURLs() {
-    return ["wss://framelink-signaling.fly.dev", window.WEBSOCKET_URL].filter(
-      Boolean
-    );
+    return WS_URLS;
   }
 
   attemptConnection(url) {
