@@ -1274,7 +1274,7 @@ class FaceDetectionManager {
 
       // Throttled logging
       const lastLog = roomState.lastLoggedStates.get(`face-${deviceId}`) || 0;
-      if (currentTime - lastLog > 3000) {
+      if (currentTime - lastLog > 10000) {
         frameLink.log(
           `🎭 ${deviceId}: ${hasFace ? "FACE" : "NO FACE"} (${(maxConfidence * 100).toFixed(0)}%)`
         );

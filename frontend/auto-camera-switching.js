@@ -120,12 +120,14 @@
       state.isStable = false;
     }
 
-    logDebug(`📊 Face State Update - ${deviceId}:`, {
-      hasFace,
-      confidence: confidence.toFixed(2),
-      isStable: state.isStable,
-      consecutive: state.consecutiveDetections,
-    });
+    if (
+      state.hasFace !== previousHasFace ||
+      Math.abs(state.confidence - previousConfidence) > 0.2
+    ) {
+      logDebug(
+        `📊 Face State CHANGE - ${deviceId}: ${hasFace ? "DETECTED" : "LOST"}`
+      );
+    }
   }
 
   function evaluateSwitchToDevice(deviceId, confidence) {
@@ -958,6 +960,18 @@
 
   function logDebug(message, data = null) {
     if (!AUTO_SWITCH_CONFIG.enableLogging) return;
+    // 🔴 ANTI-SPAM: Skip frequent messages
+    const spamPatterns = [
+      /Face State Update/i,
+      /Warte auf stabile/i,
+      /Switch Score/i,
+      /evaluiere Alternative/i,
+      /Hysterese aktiv/i,
+    ];
+
+    if (spamPatterns.some((pattern) => pattern.test(message))) {
+      return; // Skip these messages
+    }
     const timestamp = new Date().toLocaleTimeString();
     const logEntry = { timestamp, message, data };
     autoCameraSwitching.debugLogs.push(logEntry);
