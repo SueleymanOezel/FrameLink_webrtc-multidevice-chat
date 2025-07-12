@@ -50,6 +50,18 @@
 
   function processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence) {
     if (!autoCameraSwitching.enabled) return;
+
+    // 🔴 NEU: Initialize currentControllingDevice if not set
+    if (
+      !autoCameraSwitching.currentControllingDevice &&
+      window.roomState?.hasCamera
+    ) {
+      autoCameraSwitching.currentControllingDevice = window.roomState.deviceId;
+      logDebug(
+        `🔧 Initialized currentControllingDevice to: ${window.roomState.deviceId}`
+      );
+    }
+
     if (isManualOverrideActive()) {
       logDebug(
         `🛑 Manual override aktiv - ignoriere Auto-Switch für ${deviceId}`
@@ -271,73 +283,65 @@
 
   function executeIntegratedCameraSwitch(deviceId, metadata = {}) {
     try {
-      // Method 1: Enhanced Room System (PREFERRED)
-      if (window.enhancedRoomSystem?.roomManager) {
-        logDebug(`🔗 Using enhancedRoomSystem for ${deviceId}`);
-        if (window.frameLink?.api?.sendMessage) {
-          const message = {
-            type: "camera-request",
-            roomId:
-              window.roomState?.roomId ||
-              window.enhancedRoomSystem.roomManager.roomId,
-            deviceId: deviceId,
-            fromDeviceId: window.roomState?.deviceId || "auto-switch",
-            metadata: {
-              ...metadata,
-              automatic: true,
-              timestamp: Date.now(),
-              reason: "face-detection-auto-switch",
-            },
-          };
-          logDebug("📤 SENDING CAMERA REQUEST:", message); // <- NEU für Debug
-          window.frameLink.api.sendMessage(message);
-          return;
-        }
+      // 🔴 FIX: Hole roomId aus dem globalen State
+      const roomId =
+        window.roomState?.roomId ||
+        window.enhancedRoomSystem?.roomManager?.roomId ||
+        window.multiDeviceRoom?.roomId;
+
+      const myDeviceId =
+        window.roomState?.deviceId || window.deviceId || "unknown";
+
+      if (!roomId) {
+        logDebug("❌ No roomId found - cannot switch camera");
+        return;
       }
-      // Method 2: Direct frameLink API (FALLBACK)
+
+      // Method 1: frameLink API (PREFERRED)
       if (window.frameLink?.api?.sendMessage) {
         const message = {
           type: "camera-request",
+          roomId: roomId, // 🔴 FIX: Verwende die korrekte roomId
           deviceId: deviceId,
-          automatic: true,
+          fromDeviceId: myDeviceId, // 🔴 FIX: Verwende korrekte fromDeviceId
           metadata: {
             ...metadata,
+            automatic: true,
             timestamp: Date.now(),
-            method: "direct-framelink",
+            reason: "face-detection-auto-switch",
           },
         };
-        window.frameLink.api.sendMessage(message);
-        logDebug(`📤 Direct frameLink camera request for ${deviceId}`, message);
+
+        logDebug("📤 FIXED Auto-Switch Camera Request:", message);
+        const success = window.frameLink.api.sendMessage(message);
+
+        if (success) {
+          // Update local state immediately
+          autoCameraSwitching.currentControllingDevice = deviceId;
+          logDebug(`✅ Camera switch message sent successfully to ${deviceId}`);
+        } else {
+          logDebug("❌ Failed to send camera switch message");
+        }
         return;
       }
-      // Method 3: Legacy WebSocket (LAST RESORT)
+
+      // Fallback: Direct WebSocket
+      logDebug("⚠️ frameLink.api.sendMessage not available - trying fallback");
+
       if (window.socket && window.socket.readyState === WebSocket.OPEN) {
         const message = {
           type: "camera-request",
+          roomId: roomId,
           deviceId: deviceId,
+          fromDeviceId: myDeviceId,
           automatic: true,
-          metadata: {
-            ...metadata,
-            timestamp: Date.now(),
-            method: "legacy-websocket",
-          },
         };
         window.socket.send(JSON.stringify(message));
-        logDebug(`📤 Legacy WebSocket camera request for ${deviceId}`, message);
+        logDebug("📤 Fallback WebSocket camera request sent");
         return;
       }
-      // Method 4: Manual UI Trigger (DESPERATE FALLBACK)
-      const cameraButton =
-        document.querySelector(`[data-device="${deviceId}"]`) ||
-        document.querySelector(`[onclick*="${deviceId}"]`);
-      if (cameraButton) {
-        logDebug(`🖱️ Triggering manual camera button for ${deviceId}`);
-        cameraButton.click();
-        return;
-      }
-      logDebug(
-        `⚠️ No available method to execute camera switch for ${deviceId}`
-      );
+
+      logDebug("❌ No available method to execute camera switch");
     } catch (error) {
       logDebug(`❌ Camera switch execution error:`, error);
     }
