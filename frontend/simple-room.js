@@ -342,78 +342,60 @@ class RoomMessageHandler {
   handleCameraSwitch(message) {
     const targetDeviceId = message.deviceId;
     const myDeviceId = roomState.deviceId;
-    const wasMyCamera = roomState.hasCamera;
 
     frameLink.log(
       `📹 Camera switch: target=${targetDeviceId}, my=${myDeviceId}`
     );
 
+    // Hole den Call-Stream (falls aktiv)
+    const coreState = frameLink.api.getState();
+    const callStream = coreState.currentCall?.localStream;
+
     if (targetDeviceId === myDeviceId) {
       // ✅ I get camera control
       roomState.hasCamera = true;
-      roomState.amCurrentCameraMaster = true; // 🔴 NEU: Immer true wenn ich Camera habe
+      roomState.amCurrentCameraMaster = true;
 
-      // 🔴 FIX: Nur Video tracks aktivieren, NICHT deaktivieren für room streaming
-      const coreState = frameLink.api.getState();
-      if (coreState.localStream) {
-        coreState.localStream.getVideoTracks().forEach((track) => {
+      // ▶️ Nur Call-Tracks aktivieren, Room-Tracks bleiben unangetastet
+      if (callStream) {
+        callStream.getVideoTracks().forEach((track) => {
           track.enabled = true;
-          frameLink.log(`📹 Enabled track: ${track.label}`);
+          frameLink.log(`📹 Enabled call track: ${track.label}`);
         });
       }
 
       this.updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
-
-      // Emit event
       frameLink.events.dispatchEvent(
         new CustomEvent("camera-control-gained", {
           detail: { deviceId: myDeviceId },
         })
       );
-
-      // 🔴 NEU: Start call wenn noch keiner aktiv ist
-      if (!roomState.callActiveWithExternal && !coreState.currentCall) {
-        frameLink.log("📞 Auto-starting external call with camera control");
-        setTimeout(() => {
-          roomState.callActiveWithExternal = true;
-          if (frameLink.api.startCall) {
-            frameLink.api.startCall();
-          }
-        }, 500);
-      }
+      // … Rest wie gehabt …
     } else {
       // ❌ Another device gets camera control
       roomState.hasCamera = false;
-      roomState.amCurrentCameraMaster = false; // 🔴 NEU
+      roomState.amCurrentCameraMaster = false;
 
-      // 🔴 FIX: Tracks nur disablen wenn wir NICHT der camera master sind
-      if (
-        roomState.callActiveWithExternal &&
-        !roomState.amCurrentCameraMaster
-      ) {
-        const coreState = frameLink.api.getState();
-        if (coreState.localStream) {
-          coreState.localStream.getVideoTracks().forEach((track) => {
-            track.enabled = false;
-            frameLink.log(`📹 Disabled track: ${track.label}`);
-          });
-        }
+      // ⏸️ Nur Call-Tracks deaktivieren (wenn Call aktiv), Room-Streams immer ON
+      if (roomState.callActiveWithExternal && callStream) {
+        callStream.getVideoTracks().forEach((track) => {
+          track.enabled = false;
+          frameLink.log(`📹 Disabled call track: ${track.label}`);
+        });
       }
 
       this.updateCameraStatus(
         `⏸️ ${targetDeviceId} controls external call`,
         "gray"
       );
-
-      // Emit event
       frameLink.events.dispatchEvent(
         new CustomEvent("camera-control-lost", {
           detail: { deviceId: targetDeviceId },
         })
       );
+      // … Rest wie gehabt …
     }
 
-    // Update UI
     this.updateExternalCallController(targetDeviceId);
   }
 

@@ -68,7 +68,28 @@
       );
       return;
     }
-    updateEnhancedFaceState(deviceId, hasFace, confidence);
+
+    const oldState = autoCameraSwitching.faceStates.get(deviceId) || {
+      hasFace: false,
+      confidence: 0,
+      consecutiveDetections: 0,
+    };
+
+    const sameFace = oldState.hasFace === hasFace;
+    const consecutive = sameFace ? oldState.consecutiveDetections + 1 : 1;
+
+    const newState = {
+      hasFace,
+      previousConfidence: oldState.confidence,
+      confidence,
+      consecutiveDetections: consecutive,
+      isStable: consecutive >= AUTO_SWITCH_CONFIG.stabilityPeriod,
+      lastUpdate: Date.now(),
+    };
+
+    autoCameraSwitching.faceStates.set(deviceId, newState);
+    logDebug(`🔄 [FaceState] ${deviceId}:`, newState);
+
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
       evaluateSwitchToDevice(deviceId, confidence);
     } else if (
