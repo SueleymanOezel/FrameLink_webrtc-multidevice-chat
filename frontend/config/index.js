@@ -11,7 +11,13 @@ const {
   DEBUG_MODE,
 } = import.meta.env;
 
-export const WS_URL = window.__env?.VITE_WS_URL || "wss://fallback.example.com";
+export const WS_URL = window.__env?.VITE_WS_URL || VITE_WS_URL;
+
+// Expose an array of WebSocket URLs for fallback
+export const WS_URLS = [
+  window.__env?.VITE_WS_URL || VITE_WS_URL,
+  VITE_FALLBACK_WS_URL,
+].filter((url) => Boolean(url));
 
 export const TURN_CONFIG = {
   username: VITE_TURN_USERNAME,
