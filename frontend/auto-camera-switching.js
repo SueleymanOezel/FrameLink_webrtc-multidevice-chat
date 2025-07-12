@@ -88,7 +88,22 @@
     };
 
     autoCameraSwitching.faceStates.set(deviceId, newState);
-    logDebug(`🔄 [FaceState] ${deviceId}:`, newState);
+
+    const stateChanged =
+      oldState.hasFace !== newState.hasFace ||
+      oldState.isStable !== newState.isStable ||
+      Math.abs(oldState.confidence - newState.confidence) >=
+        AUTO_SWITCH_CONFIG.faceDetectionThreshold;
+
+    if (stateChanged) {
+      logDebug(`🔄 [FaceState] ${deviceId}:`, {
+        hasFace: newState.hasFace,
+        confidence: newState.confidence.toFixed(2),
+        previousConfidence: newState.previousConfidence.toFixed(2),
+        consecutiveDetections: newState.consecutiveDetections,
+        isStable: newState.isStable,
+      });
+    }
 
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
       evaluateSwitchToDevice(deviceId, confidence);
