@@ -2,12 +2,10 @@
   "version": 2,
   "builds": [
     { "src": "index.html", "use": "@vercel/static" },
+    { "src": "frontend/main.js", "use": "@vercel/static" },
     { "src": "app.js", "use": "@vercel/static" },
     { "src": "simple-room.js", "use": "@vercel/static" },
-    { "src": "room-video-streaming.js", "use": "@vercel/static" },
-    { "src": "face-detection.js", "use": "@vercel/static" },
     { "src": "auto-camera-switching.js", "use": "@vercel/static" },
-    { "src": "complete-integration-fix.js", "use": "@vercel/static" },
     { "src": "websocket-debug-fix.js", "use": "@vercel/static" },
     { "src": "models/*", "use": "@vercel/static" }
   ],
