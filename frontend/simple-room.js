@@ -337,6 +337,7 @@ class RoomMessageHandler {
 
       // Handle call takeover if needed
       if (roomState.callActiveWithExternal && !wasMyCamera) {
+        frameLink.log("📞 Triggering startCall takeover by " + myDeviceId);
         setTimeout(() => this.initiateCallTakeover(), 500);
       }
     } else {

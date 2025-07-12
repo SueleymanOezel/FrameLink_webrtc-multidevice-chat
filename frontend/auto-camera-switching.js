@@ -278,8 +278,8 @@
           const message = {
             type: "camera-request",
             roomId:
-              window.enhancedRoomSystem.roomManager.roomId ||
-              window.roomState?.roomId,
+              window.roomState?.roomId ||
+              window.enhancedRoomSystem.roomManager.roomId,
             deviceId: deviceId,
             fromDeviceId: window.roomState?.deviceId || "auto-switch",
             metadata: {
@@ -289,8 +289,8 @@
               reason: "face-detection-auto-switch",
             },
           };
+          logDebug("📤 SENDING CAMERA REQUEST:", message); // <- NEU für Debug
           window.frameLink.api.sendMessage(message);
-          logDebug(`📤 Enhanced camera request sent for ${deviceId}`, message);
           return;
         }
       }

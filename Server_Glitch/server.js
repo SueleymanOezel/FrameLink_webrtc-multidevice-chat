@@ -108,6 +108,20 @@ wss.on("connection", (ws, req) => {
       }
 
       switch (msg.type) {
+        case "request-room-peers":
+          if (ws.roomId && rooms.has(ws.roomId)) {
+            const devices = Array.from(rooms.get(ws.roomId)).map((c) => ({
+              deviceId: c.deviceId,
+            }));
+            ws.send(
+              JSON.stringify({
+                type: "room-update",
+                roomId: ws.roomId,
+                devices,
+              })
+            );
+          }
+          break;
         case "join-room":
           // Client tritt lokalem Multi-Device Room bei
           ws.roomId = msg.roomId;
