@@ -80,28 +80,37 @@
     cleanupPendingSwitches();
   }
 
+  /**
+   * Update cached face state and log only on real changes.
+   * @param {string} deviceId
+   * @param {boolean} hasFace
+   * @param {number} confidence
+   */
   function updateEnhancedFaceState(deviceId, hasFace, confidence) {
     const currentTime = Date.now();
+    // Hole oder initialisiere State
     let state = autoCameraSwitching.faceStates.get(deviceId);
-
     if (!state) {
       state = {
         hasFace: false,
-        confidence: 0,
+        previousConfidence: 0,
         lastUpdate: currentTime,
         stableDetectionStart: null,
         consecutiveDetections: 0,
         averageConfidence: 0,
         isStable: false,
       };
-      autoCameraSwitching.faceStates.set(deviceId, state);
     }
 
+    // Speichere alten Wert für Vergleiche
     const previousHasFace = state.hasFace;
+    const previousConfidence = state.previousConfidence;
+
+    // Update Basisdaten
     state.hasFace = hasFace;
-    state.confidence = confidence;
     state.lastUpdate = currentTime;
 
+    // Face-Detection-Logik
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
       if (!previousHasFace) {
         state.stableDetectionStart = currentTime;
@@ -111,8 +120,7 @@
         state.consecutiveDetections++;
         state.averageConfidence = (state.averageConfidence + confidence) / 2;
       }
-      const detectionDuration =
-        currentTime - (state.stableDetectionStart || currentTime);
+      const detectionDuration = currentTime - state.stableDetectionStart;
       state.isStable = detectionDuration >= AUTO_SWITCH_CONFIG.stabilityPeriod;
     } else {
       state.stableDetectionStart = null;
@@ -120,14 +128,20 @@
       state.isStable = false;
     }
 
+    // Log nur bei echtem Wechsel
     if (
       state.hasFace !== previousHasFace ||
-      Math.abs(state.confidence - previousConfidence) > 0.2
+      Math.abs(confidence - previousConfidence) > 0.2
     ) {
       logDebug(
-        `📊 Face State CHANGE - ${deviceId}: ${hasFace ? "DETECTED" : "LOST"}`
+        `📊 Face State CHANGE - ${deviceId}: ${hasFace ? "DETECTED" : "LOST"}` +
+          ` (Δconf=${(confidence - previousConfidence).toFixed(2)})`
       );
     }
+
+    // Update confidence für nächstes Mal
+    state.previousConfidence = confidence;
+    autoCameraSwitching.faceStates.set(deviceId, state);
   }
 
   function evaluateSwitchToDevice(deviceId, confidence) {
