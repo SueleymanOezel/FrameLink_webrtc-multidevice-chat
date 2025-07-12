@@ -1,4 +1,4 @@
-// src/config/index.js
+// config/index.js
 /**
  * Central config module reads everything from import.meta.env
  */
@@ -11,7 +11,7 @@ const {
   DEBUG_MODE,
 } = import.meta.env;
 
-export const WS_URLS = [VITE_WS_URL, VITE_FALLBACK_WS_URL].filter(Boolean);
+export const WS_URL = window.__env?.VITE_WS_URL || "wss://fallback.example.com";
 
 export const TURN_CONFIG = {
   username: VITE_TURN_USERNAME,
