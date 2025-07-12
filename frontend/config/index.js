@@ -1,32 +1,27 @@
-// config/index.js
-/**
- * Central config module reads everything from import.meta.env
- */
-const {
-  VITE_WS_URL,
-  VITE_FALLBACK_WS_URL,
-  VITE_TURN_USERNAME,
-  VITE_TURN_CREDENTIAL,
-  VITE_TURN_SERVERS,
-  DEBUG_MODE,
-} = import.meta.env;
+// frontend/config/index.js
+// Statische Konfiguration für WebRTC und Signaling (ohne Bundler)
 
-export const WS_URL = window.__env?.VITE_WS_URL || VITE_WS_URL;
+// Liste der Signaling-Server (primary + optional fallback)
+export const WS_URLS = ["wss://framelink-signaling.fly.dev"];
 
-// Expose an array of WebSocket URLs for fallback
-export const WS_URLS = [
-  window.__env?.VITE_WS_URL || VITE_WS_URL,
-  VITE_FALLBACK_WS_URL,
-].filter((url) => Boolean(url));
+// Optional: Fallback-URL, falls gewünscht
+export const FALLBACK_WS_URL = "";
 
+// TURN-Server-Konfiguration
 export const TURN_CONFIG = {
-  username: VITE_TURN_USERNAME,
-  credential: VITE_TURN_CREDENTIAL,
-  servers: JSON.parse(VITE_TURN_SERVERS),
+  username: "18dd3dc42100ea8643228a68",
+  credential: "9u70h1tuJ9YA0ONB",
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "turn:global.relay.metered.ca:3478?transport=udp" },
+    { urls: "turns:global.relay.metered.ca:443?transport=udp" },
+    { urls: "turn:global.relay.metered.ca:80?transport=tcp" },
+    { urls: "turns:global.relay.metered.ca:443?transport=tcp" },
+    { urls: "turn:global.relay.metered.ca:80" },
+  ],
 };
 
-export const DEBUG = DEBUG_MODE === "true";
-
-// Parses TURN servers from JSON string in .env
-// Exposes WS URL array, dropping any empty fallback URL
-// DEBUG flag always boolean
+// Debug-Flag
+export const DEBUG = false;

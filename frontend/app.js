@@ -36,8 +36,7 @@ window.frameLink = {
 // 🌐 UNIFIED TURN CONFIGURATION
 // ================================================================
 
-import { TURN_CONFIG, DEBUG } from "./config";
-import { WS_URLS } from "./config/index.js";
+import { WS_URLS, TURN_CONFIG, DEBUG } from "./config/index.js";
 
 // ================================================================
 // 🏭 PEERCONNECTION FACTORY

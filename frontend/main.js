@@ -1,5 +1,6 @@
 // frontend/src/main.js
-import "./config/index.js"; // lädt WS_URLS, TURN_CONFIG, DEBUG
-import "./app.js"; // initialisiert frameLink.core & WebSocketManager
-import "./simple-room.js"; // bindet Room-Logik
-import "./auto-camera-switching.js"; // bindet Face-Detection & Auto-Switch
+import { WS_URLS, TURN_CONFIG, DEBUG } from "./config/index.js";
+import "./app.js";
+import "./simple-room.js";
+import "./auto-camera-switching.js";
+import "./websocket-debug-fix.js";
