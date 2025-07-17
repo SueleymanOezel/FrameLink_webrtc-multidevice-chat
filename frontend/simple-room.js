@@ -194,6 +194,7 @@ class RoomManager {
       if (currentCall && frameLink.core.localStream) {
         frameLink.core.localStream.getVideoTracks().forEach(track => {
           track.enabled = true;
+          frameLink.log(`📞 Enabled video track: ${track.label}`);
         });
       }
     } else {
@@ -203,6 +204,7 @@ class RoomManager {
       if (currentCall && frameLink.core.localStream) {
         frameLink.core.localStream.getVideoTracks().forEach(track => {
           track.enabled = false;
+          frameLink.log(`📞 Disabled video track: ${track.label}`);
         });
       }
     }
@@ -217,7 +219,19 @@ class RoomManager {
       "📞 Du streamst zu externem Anruf" : 
       `📞 ${streamingDevice} streamt zu externem Anruf`;
     
-    this.updateCallStatus(statusText);
+    // Update UI elements
+    const callInfo = document.getElementById("call-info");
+    const callStatus = document.getElementById("call-status");
+    
+    if (callInfo && callStatus) {
+      callInfo.style.display = "block";
+      callStatus.textContent = statusText;
+    }
+    
+    // Update external call status in room video manager
+    if (window.roomVideoManager) {
+      window.roomVideoManager.updateExternalCallStatus(statusText, isMyDevice);
+    }
   }
 
   updateJoinRoomButtonState() {
@@ -386,7 +400,7 @@ class RoomManager {
 
       if (state === "connected" || state === "connecting") {
         roomState.callActiveWithExternal = true;
-        this.updateCallStatus("📞 Existing call detected");
+        this.updateCallStatusInternal("📞 Existing call detected");
 
         // Check if local camera is active
         if (coreState.localStream) {
@@ -414,13 +428,13 @@ class RoomManager {
         this.determineExternalStreamDevice();
       }
 
-      this.updateCallStatus("📞 External call active");
+      this.updateCallStatusInternal("📞 External call active");
     });
 
     frameLink.events.addEventListener("call-ended", (event) => {
       frameLink.log("📞 External call ended event");
       roomState.callActiveWithExternal = false;
-      this.updateCallStatus("📞 Call ended");
+      this.updateCallStatusInternal("📞 Call ended");
     });
 
     // Monitor face detection changes for smart switching
@@ -474,6 +488,16 @@ class RoomManager {
       }
     }
     return null;
+  }
+
+  updateCallStatusInternal(message) {
+    const callInfo = document.getElementById("call-info");
+    const callStatus = document.getElementById("call-status");
+
+    if (callInfo && callStatus) {
+      callInfo.style.display = "block";
+      callStatus.textContent = message;
+    }
   }
 }
 
