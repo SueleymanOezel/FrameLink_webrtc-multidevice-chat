@@ -235,6 +235,13 @@ class RoomManager {
     const success = frameLink.api.sendMessage(message);
     
     console.log("🔍 DEBUG: sendMessage returned:", success);
+    
+    // Set up a timeout to check if we get a response
+    setTimeout(() => {
+      console.log("🔍 DEBUG: 5 seconds after join-room, checking if we got any response...");
+      console.log("🔍 DEBUG: roomState.inRoom:", roomState.inRoom);
+      console.log("🔍 DEBUG: Connected devices:", roomState.roomDeviceCount);
+    }, 5000);
 
     if (success) {
       roomState.inRoom = true;
@@ -356,7 +363,12 @@ class RoomMessageHandler {
   setupMessageHandling() {
     // Listen to WebSocket messages from frameLink
     frameLink.events.addEventListener("websocket-message", (event) => {
-      this.handleMessage(event.detail.message);
+      const message = event.detail.message;
+      // Only log room-related messages, not ping/pong
+      if (message.type && ['join-room', 'room-update', 'room-peer-joined', 'room-peer-left', 'camera-request', 'room-video-offer', 'room-video-answer', 'room-video-ice'].includes(message.type)) {
+        console.log("📨 DEBUG: Received room message:", message.type, message);
+      }
+      this.handleMessage(message);
     });
   }
 
@@ -364,10 +376,14 @@ class RoomMessageHandler {
     const { type, roomId } = message;
 
     // Only handle room messages for our room
-    if (roomId !== roomState.roomId || !roomState.inRoom) return;
+    if (roomId !== roomState.roomId || !roomState.inRoom) {
+      return;
+    }
 
     // Prevent duplicate processing
-    if (this.isDuplicateMessage(message)) return;
+    if (this.isDuplicateMessage(message)) {
+      return;
+    }
 
     frameLink.log(`📨 Room message: ${type}`, message);
 
@@ -521,14 +537,26 @@ class RoomMessageHandler {
   handleRoomUpdate(message) {
     const devices = message.devices || [];
     const deviceCount = devices.length;
+    const previousDeviceCount = roomState.roomDeviceCount;
     roomState.roomDeviceCount = deviceCount;
-    frameLink.log(`🏠 Room update: ${deviceCount} devices`, devices);
+    
+    // Only log if device count changed
+    if (deviceCount !== previousDeviceCount) {
+      console.log(`📨 Room update: ${deviceCount} devices (was ${previousDeviceCount}):`, devices);
+      frameLink.log(`🏠 Room update: ${deviceCount} devices`, devices);
+    }
+
+    // Update UI device count
+    if (window.roomVideoManager) {
+      window.roomVideoManager.updateDeviceCount();
+    }
 
     // 🔴 FIX: Aktiv mit allen Devices verbinden
     devices.forEach((device) => {
       if (device.deviceId !== roomState.deviceId) {
         // Check if we're already connected
         if (!roomState.roomPeerConnections.has(device.deviceId)) {
+          console.log(`📨 Connecting to new device: ${device.deviceId}`);
           frameLink.log(
             `🔍 Discovered new device: ${device.deviceId} - initiating connection`
           );
@@ -1629,6 +1657,33 @@ class EnhancedRoomSystem {
           window.enhancedRoomSystem.roomManager.updateJoinRoomButtonState();
         } else {
           console.log("  Room manager not available");
+        }
+      },
+      
+      checkRoomState: () => {
+        console.log("🔍 Current room state:", {
+          roomId: roomState.roomId,
+          deviceId: roomState.deviceId,
+          inRoom: roomState.inRoom,
+          deviceCount: roomState.roomDeviceCount,
+          connectedPeers: Array.from(roomState.roomPeerConnections.keys()),
+          videoStreams: Array.from(roomState.roomVideoStreams.keys())
+        });
+      },
+      
+      simulateRoomUpdate: () => {
+        console.log("🔍 Simulating room update with 2 devices:");
+        const fakeMessage = {
+          type: "room-update",
+          roomId: roomState.roomId,
+          devices: [
+            { deviceId: roomState.deviceId },
+            { deviceId: "test-device-2" }
+          ]
+        };
+        
+        if (window.enhancedRoomSystem?.messageHandler) {
+          window.enhancedRoomSystem.messageHandler.handleRoomUpdate(fakeMessage);
         }
       }
     };

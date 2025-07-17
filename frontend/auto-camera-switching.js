@@ -648,12 +648,19 @@
             const willController =
               hasFace &&
               confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold;
+            
+            // Only log actual controller changes, not repeated detections
             if (!wasController && willController) {
               logDebug(
                 `➡️ Hook: wechsle Kontrolle auf ${deviceId} (conf=${confidence.toFixed(2)})`
               );
             } else if (wasController && !willController) {
               logDebug(`⬅️ Hook: gebe Kontrolle von ${deviceId} ab`);
+            }
+            
+            // Check if controller actually changed before processing
+            if (wasController === willController) {
+              return ret; // No change, skip processing
             }
 
             // und dann weiter zur AutoSwitch-Logik

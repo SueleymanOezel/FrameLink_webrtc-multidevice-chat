@@ -318,16 +318,18 @@ class WebSocketManager {
   }
 
   sendMessage(message) {
-    console.log("🔍 DEBUG: sendMessage called with:", message);
-    console.log("🔍 DEBUG: WebSocket state:", this.socket?.readyState);
-    console.log("🔍 DEBUG: WebSocket.OPEN constant:", WebSocket.OPEN);
+    // Only log non-ping/pong messages
+    if (message.type !== 'ping' && message.type !== 'pong') {
+      console.log("🔍 DEBUG: sendMessage called with:", message);
+    }
     
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       try {
         const messageString = JSON.stringify(message);
-        console.log("🔍 DEBUG: Sending message string:", messageString);
         this.socket.send(messageString);
-        frameLink.log("✅ Message sent successfully:", message.type);
+        if (message.type !== 'ping' && message.type !== 'pong') {
+          frameLink.log("✅ Message sent successfully:", message.type);
+        }
         return true;
       } catch (error) {
         frameLink.log("❌ Error sending message:", error);
