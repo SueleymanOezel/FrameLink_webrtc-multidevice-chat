@@ -123,11 +123,16 @@ class RoomManager {
     // Listen to frameLink events
     frameLink.events.addEventListener("websocket-ready", () => {
       frameLink.log("🏠 WebSocket ready - Room system can connect");
-      this.updateJoinRoomButtonState();
+      setTimeout(() => this.updateJoinRoomButtonState(), 100);
     });
 
-    // Initial button state check
-    this.updateJoinRoomButtonState();
+    // Periodic button state check (every 2 seconds)
+    setInterval(() => {
+      this.updateJoinRoomButtonState();
+    }, 2000);
+
+    // Initial button state check (delayed to allow frameLink to load)
+    setTimeout(() => this.updateJoinRoomButtonState(), 1000);
 
     // 🔴 NEU: Setup external call handling
     this.setupExternalCallHandling();
@@ -135,23 +140,31 @@ class RoomManager {
 
   updateJoinRoomButtonState() {
     const joinRoomBtn = document.getElementById("join-room");
-    if (!joinRoomBtn) return;
+    if (!joinRoomBtn) {
+      console.log("🔘 DEBUG: Join button not found!");
+      return;
+    }
 
     const isWebSocketReady = frameLink.api.isReady();
     const isAlreadyInRoom = roomState.inRoom;
+
+    console.log(`🔘 DEBUG: updateJoinRoomButtonState - WebSocket=${isWebSocketReady}, InRoom=${isAlreadyInRoom}`);
 
     if (isAlreadyInRoom) {
       joinRoomBtn.disabled = true;
       joinRoomBtn.textContent = "✅ Multi-Device Active";
       joinRoomBtn.style.background = "#4caf50";
+      console.log("🔘 DEBUG: Button set to 'Active' state");
     } else if (isWebSocketReady) {
       joinRoomBtn.disabled = false;
       joinRoomBtn.textContent = "🚪 Activate Multi-Device";
       joinRoomBtn.style.background = "#2196f3";
+      console.log("🔘 DEBUG: Button set to 'Ready' state");
     } else {
       joinRoomBtn.disabled = true;
       joinRoomBtn.textContent = "⏳ Connecting...";
       joinRoomBtn.style.background = "#ccc";
+      console.log("🔘 DEBUG: Button set to 'Connecting' state");
     }
 
     frameLink.log(`🔘 Join button state: WebSocket=${isWebSocketReady}, InRoom=${isAlreadyInRoom}`);
@@ -1607,6 +1620,15 @@ class EnhancedRoomSystem {
         console.log("  Button text:", button?.textContent);
         if (button) {
           button.click();
+        }
+      },
+      
+      forceUpdateButton: () => {
+        console.log("🔍 Force updating button state:");
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.updateJoinRoomButtonState();
+        } else {
+          console.log("  Room manager not available");
         }
       }
     };
