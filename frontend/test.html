@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+  <head>
+    <title>FrameLink Test</title>
+    <meta charset="UTF-8" />
+  </head>
+  <body>
+    <h1>FrameLink Test</h1>
+    <div id="status">Loading...</div>
+    <div id="test-results"></div>
+
+    <script type="module">
+      try {
+        // Test if main.js can be imported
+        import("./main.js")
+          .then(() => {
+            console.log("✅ main.js imported successfully");
+            document.getElementById("status").textContent =
+              "Loading successful";
+
+            // Test if frameLink object exists
+            setTimeout(() => {
+              if (window.frameLink) {
+                console.log("✅ frameLink object exists");
+                document.getElementById("test-results").innerHTML +=
+                  "<p>✅ frameLink object exists</p>";
+
+                // Test if roomState exists
+                if (window.roomState) {
+                  console.log("✅ roomState object exists");
+                  document.getElementById("test-results").innerHTML +=
+                    "<p>✅ roomState object exists</p>";
+                } else {
+                  console.log("❌ roomState object missing");
+                  document.getElementById("test-results").innerHTML +=
+                    "<p>❌ roomState object missing</p>";
+                }
+
+                // Test if enhancedRoomSystem exists
+                if (window.enhancedRoomSystem) {
+                  console.log("✅ enhancedRoomSystem object exists");
+                  document.getElementById("test-results").innerHTML +=
+                    "<p>✅ enhancedRoomSystem object exists</p>";
+                } else {
+                  console.log("❌ enhancedRoomSystem object missing");
+                  document.getElementById("test-results").innerHTML +=
+                    "<p>❌ enhancedRoomSystem object missing</p>";
+                }
+
+                document.getElementById("status").textContent =
+                  "Test completed";
+              } else {
+                console.log("❌ frameLink object not found");
+                document.getElementById("test-results").innerHTML +=
+                  "<p>❌ frameLink object not found</p>";
+                document.getElementById("status").textContent = "Test failed";
+              }
+            }, 2000);
+          })
+          .catch((error) => {
+            console.error("❌ Error importing main.js:", error);
+            document.getElementById("status").textContent =
+              "Import failed: " + error.message;
+            document.getElementById("test-results").innerHTML +=
+              "<p>❌ Import failed: " + error.message + "</p>";
+          });
+      } catch (error) {
+        console.error("❌ Test script error:", error);
+        document.getElementById("status").textContent =
+          "Test script error: " + error.message;
+      }
+    </script>
+  </body>
+</html>

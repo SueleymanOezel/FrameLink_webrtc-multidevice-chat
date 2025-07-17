@@ -461,7 +461,7 @@ class RoomManager {
           if (hasActiveVideo) {
             roomState.hasCamera = true;
             roomState.amCurrentCameraMaster = true;
-            this.updateCameraStatus("📹 CAMERA ACTIVE", "green");
+            updateCameraStatus("📹 CAMERA ACTIVE", "green");
           }
         }
       }
@@ -684,7 +684,7 @@ class RoomMessageHandler {
         });
       }
 
-      this.updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
+      updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
       frameLink.events.dispatchEvent(
         new CustomEvent("camera-control-gained", {
           detail: { deviceId: myDeviceId },
@@ -704,7 +704,7 @@ class RoomMessageHandler {
         });
       }
 
-      this.updateCameraStatus(
+      updateCameraStatus(
         `⏸️ ${targetDeviceId} controls external call`,
         "gray"
       );
@@ -785,7 +785,7 @@ class RoomMessageHandler {
     if (message.fromDeviceId !== roomState.deviceId) {
       frameLink.log("📞 External call started by room device");
       roomState.callActiveWithExternal = true;
-      this.updateCallStatus("📞 External call started");
+      updateCallStatus("📞 External call started");
     }
   }
 
@@ -808,7 +808,7 @@ class RoomMessageHandler {
       roomState.callActiveWithExternal = true;
       
       // Update UI to show master call participation
-      this.updateCallStatus("📞 Master call active - participating");
+      updateCallStatus("📞 Master call active - participating");
       
       // Listen for stream switching instructions
       frameLink.log("📞 Waiting for stream switching instructions...");
@@ -822,7 +822,7 @@ class RoomMessageHandler {
     if (frameLink.api.startCall) {
       setTimeout(() => {
         frameLink.api.startCall();
-        this.updateCallStatus("📞 Call restarted with new camera");
+        updateCallStatus("📞 Call restarted with new camera");
       }, 500);
     }
   }
