@@ -1026,6 +1026,38 @@
 
   function logDebug(message, data = null) {
     if (!AUTO_SWITCH_CONFIG.enableLogging) return;
+    
+    // 🔴 ENHANCED ANTI-SPAM: Rate limiting for repeated messages
+    const now = Date.now();
+    const RATE_LIMIT_MS = 3000; // 3 Sekunden zwischen gleichen Nachrichten
+    
+    // Create message hash (remove dynamic parts)
+    const msgHash = message
+      .replace(/\d{2}:\d{2}:\d{2}/g, '')
+      .replace(/conf=\d+\.\d+/g, 'conf=X.XX')
+      .replace(/\d+ms/g, 'Xms')
+      .replace(/\d+\.\d+/g, 'X.X');
+    
+    // Check rate limit
+    if (!logDebug._lastLogged) logDebug._lastLogged = new Map();
+    
+    if (logDebug._lastLogged.has(msgHash)) {
+      const lastTime = logDebug._lastLogged.get(msgHash);
+      if (now - lastTime < RATE_LIMIT_MS) {
+        return; // Skip - too soon
+      }
+    }
+    
+    // Update last logged time
+    logDebug._lastLogged.set(msgHash, now);
+    
+    // Clean old entries periodically
+    if (logDebug._lastLogged.size > 100) {
+      const oldEntries = Array.from(logDebug._lastLogged.entries())
+        .filter(([_, time]) => now - time > RATE_LIMIT_MS * 5);
+      oldEntries.forEach(([key]) => logDebug._lastLogged.delete(key));
+    }
+    
     // 🔴 ANTI-SPAM: Skip frequent messages
     const spamPatterns = [
       /Face State Update/i,
@@ -1033,6 +1065,7 @@
       /Switch Score/i,
       /evaluiere Alternative/i,
       /Hysterese aktiv/i,
+      /Hook.*wechsle Kontrolle/i,
     ];
 
     if (spamPatterns.some((pattern) => pattern.test(message))) {

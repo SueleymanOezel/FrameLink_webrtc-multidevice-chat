@@ -495,6 +495,16 @@ class CallManager {
   async startCall() {
     frameLink.log("🚀 Starting call...");
 
+    // 🔴 SMART ROOM CALLING: Room-Anrufe sind erlaubt, aber nur das aktive Gerät streamt
+    if (window.roomState && window.roomState.inRoom && window.roomState.roomDeviceCount > 1) {
+      frameLink.log("📞 Room-Call: Mehrere Geräte im Room - verwende Smart-Stream-Switching");
+      
+      // Notify other room devices about external call
+      if (window.enhancedRoomSystem?.roomManager) {
+        window.enhancedRoomSystem.roomManager.notifyExternalCallStart();
+      }
+    }
+
     // Ensure media is ready
     if (!frameLink.core.localStream) {
       await this.mediaManager.initializeMedia();
@@ -617,7 +627,13 @@ class FrameLinkCore {
     const startBtn = document.getElementById("startCall");
     if (startBtn) {
       startBtn.disabled = false;
-      startBtn.addEventListener("click", () => this.callManager.startCall());
+      startBtn.addEventListener("click", () => {
+        // 🔴 SMART ROOM CALLING: Allow room calls with smart stream switching
+        if (window.roomState && window.roomState.inRoom && window.roomState.roomDeviceCount > 1) {
+          frameLink.log("📞 Room-Call initiated - Smart-Stream-Switching aktiviert");
+        }
+        this.callManager.startCall();
+      });
     }
 
     // Camera toggle

@@ -138,6 +138,88 @@ class RoomManager {
     this.setupExternalCallHandling();
   }
 
+  notifyExternalCallStart() {
+    frameLink.log("📞 Notifying room devices about external call start");
+    
+    // Send message to all room devices
+    frameLink.api.sendMessage({
+      type: "room-call-start",
+      roomId: roomState.roomId,
+      fromDeviceId: roomState.deviceId,
+      timestamp: Date.now()
+    });
+    
+    // Mark call as active
+    roomState.callActiveWithExternal = true;
+    
+    // Determine which device should stream to external
+    this.determineExternalStreamDevice();
+  }
+
+  determineExternalStreamDevice() {
+    // Check if we have face detection data
+    const devicesWithFaces = Array.from(roomState.faceDetectionStates.entries())
+      .filter(([_, state]) => state.hasFace)
+      .sort((a, b) => b[1].confidence - a[1].confidence); // Sort by confidence
+    
+    let streamingDevice = roomState.deviceId; // Default to current device
+    
+    if (devicesWithFaces.length > 0) {
+      streamingDevice = devicesWithFaces[0][0]; // Device with highest confidence
+      frameLink.log(`📞 External stream device: ${streamingDevice} (face detected)`);
+    } else {
+      frameLink.log(`📞 External stream device: ${streamingDevice} (fallback - no faces)`);
+    }
+    
+    // Notify room about streaming device
+    frameLink.api.sendMessage({
+      type: "external-stream-device",
+      roomId: roomState.roomId,
+      fromDeviceId: roomState.deviceId,
+      streamingDevice: streamingDevice,
+      timestamp: Date.now()
+    });
+    
+    // Update local state
+    this.setExternalStreamingDevice(streamingDevice);
+  }
+
+  setExternalStreamingDevice(deviceId) {
+    const isMyDevice = deviceId === roomState.deviceId;
+    
+    if (isMyDevice) {
+      frameLink.log("📞 This device will stream to external call");
+      // Enable video track for external call
+      const currentCall = frameLink.core.currentCall;
+      if (currentCall && frameLink.core.localStream) {
+        frameLink.core.localStream.getVideoTracks().forEach(track => {
+          track.enabled = true;
+        });
+      }
+    } else {
+      frameLink.log(`📞 Device ${deviceId} will stream to external call (not this device)`);
+      // Disable video track for external call
+      const currentCall = frameLink.core.currentCall;
+      if (currentCall && frameLink.core.localStream) {
+        frameLink.core.localStream.getVideoTracks().forEach(track => {
+          track.enabled = false;
+        });
+      }
+    }
+    
+    // Update UI
+    this.updateExternalStreamUI(deviceId);
+  }
+
+  updateExternalStreamUI(streamingDevice) {
+    const isMyDevice = streamingDevice === roomState.deviceId;
+    const statusText = isMyDevice ? 
+      "📞 Du streamst zu externem Anruf" : 
+      `📞 ${streamingDevice} streamt zu externem Anruf`;
+    
+    this.updateCallStatus(statusText);
+  }
+
   updateJoinRoomButtonState() {
     const joinRoomBtn = document.getElementById("join-room");
     if (!joinRoomBtn) {
@@ -327,14 +409,9 @@ class RoomManager {
       frameLink.log("📞 External call started event");
       roomState.callActiveWithExternal = true;
 
-      // Ensure camera master has video enabled
-      if (roomState.hasCamera && roomState.amCurrentCameraMaster) {
-        const coreState = frameLink.api.getState();
-        if (coreState.localStream) {
-          coreState.localStream.getVideoTracks().forEach((track) => {
-            track.enabled = true;
-          });
-        }
+      // Start smart stream switching if multiple devices
+      if (roomState.inRoom && roomState.roomDeviceCount > 1) {
+        this.determineExternalStreamDevice();
       }
 
       this.updateCallStatus("📞 External call active");
@@ -343,9 +420,60 @@ class RoomManager {
     frameLink.events.addEventListener("call-ended", (event) => {
       frameLink.log("📞 External call ended event");
       roomState.callActiveWithExternal = false;
-      roomState.amCurrentCameraMaster = false;
       this.updateCallStatus("📞 Call ended");
     });
+
+    // Monitor face detection changes for smart switching
+    frameLink.events.addEventListener("face-detection-change", (event) => {
+      const { deviceId, hasFace, confidence } = event.detail;
+      
+      // If external call is active and we're in a room, check for stream switching
+      if (roomState.callActiveWithExternal && roomState.inRoom && roomState.roomDeviceCount > 1) {
+        this.checkExternalStreamSwitching();
+      }
+    });
+  }
+
+  checkExternalStreamSwitching() {
+    // Find device with highest confidence face
+    const devicesWithFaces = Array.from(roomState.faceDetectionStates.entries())
+      .filter(([_, state]) => state.hasFace)
+      .sort((a, b) => b[1].confidence - a[1].confidence);
+    
+    if (devicesWithFaces.length > 0) {
+      const bestDevice = devicesWithFaces[0][0];
+      
+      // Check if this is different from current streaming device
+      const currentStreamingDevice = this.getCurrentStreamingDevice();
+      
+      if (bestDevice !== currentStreamingDevice) {
+        frameLink.log(`📞 Switching external stream from ${currentStreamingDevice} to ${bestDevice}`);
+        
+        // Notify room about new streaming device
+        frameLink.api.sendMessage({
+          type: "external-stream-device",
+          roomId: roomState.roomId,
+          fromDeviceId: roomState.deviceId,
+          streamingDevice: bestDevice,
+          timestamp: Date.now()
+        });
+        
+        // Update local state
+        this.setExternalStreamingDevice(bestDevice);
+      }
+    }
+  }
+
+  getCurrentStreamingDevice() {
+    // Find which device is currently streaming (has video enabled)
+    const currentCall = frameLink.core.currentCall;
+    if (currentCall && frameLink.core.localStream) {
+      const videoTracks = frameLink.core.localStream.getVideoTracks();
+      if (videoTracks.length > 0 && videoTracks[0].enabled) {
+        return roomState.deviceId;
+      }
+    }
+    return null;
   }
 }
 
@@ -396,6 +524,9 @@ class RoomMessageHandler {
         break;
       case "room-call-start":
         this.handleRoomCallStart(message);
+        break;
+      case "external-stream-device":
+        this.handleExternalStreamDevice(message);
         break;
       case "room-video-offer":
         this.roomVideoManager.handleRoomVideoOffer(message);
@@ -573,10 +704,21 @@ class RoomMessageHandler {
   }
 
   handleRoomCallStart(message) {
-    if (!roomState.hasCamera && message.fromDeviceId !== roomState.deviceId) {
-      frameLink.log("📞 Starting call automatically (from camera master)");
+    if (message.fromDeviceId !== roomState.deviceId) {
+      frameLink.log("📞 External call started by room device");
       roomState.callActiveWithExternal = true;
-      this.updateCallStatus("📞 Call started by master device");
+      this.updateCallStatus("📞 External call started");
+    }
+  }
+
+  handleExternalStreamDevice(message) {
+    if (message.fromDeviceId !== roomState.deviceId) {
+      frameLink.log(`📞 External stream device set to: ${message.streamingDevice}`);
+      
+      // Update our local state
+      if (window.enhancedRoomSystem?.roomManager) {
+        window.enhancedRoomSystem.roomManager.setExternalStreamingDevice(message.streamingDevice);
+      }
     }
   }
 
@@ -1684,6 +1826,56 @@ class EnhancedRoomSystem {
         
         if (window.enhancedRoomSystem?.messageHandler) {
           window.enhancedRoomSystem.messageHandler.handleRoomUpdate(fakeMessage);
+        }
+      },
+      
+      checkExternalCallStatus: () => {
+        console.log("🔍 External call status check:");
+        const startBtn = document.getElementById("startCall");
+        console.log("  Start button found:", !!startBtn);
+        console.log("  Start button disabled:", startBtn?.disabled);
+        console.log("  Start button text:", startBtn?.textContent);
+        console.log("  Room state:", {
+          inRoom: roomState.inRoom,
+          deviceCount: roomState.roomDeviceCount,
+          hasCamera: roomState.hasCamera,
+          callActive: roomState.callActiveWithExternal
+        });
+        console.log("  FrameLink core:", {
+          initialized: frameLink.core.initialized,
+          localStream: !!frameLink.core.localStream,
+          currentCall: !!frameLink.core.currentCall
+        });
+      },
+      
+      testExternalCall: () => {
+        console.log("🔍 Testing external call:");
+        if (frameLink.api.startCall) {
+          frameLink.api.startCall();
+        } else {
+          console.log("  frameLink.api.startCall not available");
+        }
+      },
+      
+      testSmartStreaming: () => {
+        console.log("🔍 Testing smart streaming:");
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.checkExternalStreamSwitching();
+        }
+      },
+      
+      getCurrentStreamingDevice: () => {
+        if (window.enhancedRoomSystem?.roomManager) {
+          const device = window.enhancedRoomSystem.roomManager.getCurrentStreamingDevice();
+          console.log("🔍 Current streaming device:", device);
+          return device;
+        }
+      },
+      
+      simulateExternalCall: () => {
+        console.log("🔍 Simulating external call start:");
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.notifyExternalCallStart();
         }
       }
     };
