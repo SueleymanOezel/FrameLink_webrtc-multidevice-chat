@@ -156,21 +156,41 @@ wss.on("connection", (ws, req) => {
           }
           break;
 
+        case "master-call-start":
+        case "external-stream-device":
+          // Master call management für lokale Rooms
+          if (ws.inLocalRoom && ws.roomId) {
+            console.log(`📞 Master call ${msg.type} in room ${ws.roomId}`);
+            broadcastToRoom(ws.roomId, msg);
+          }
+          break;
+
+        case "room-video-offer":
+        case "room-video-answer":
+        case "room-video-ice":
+        case "room-peer-joined":
+        case "room-peer-left":
+        case "face-detection-update":
+          // Room video/peer management für lokale Rooms
+          if (ws.inLocalRoom && ws.roomId) {
+            console.log(`🎥 Room video ${msg.type} in room ${ws.roomId}`);
+            broadcastToRoom(ws.roomId, msg);
+          }
+          break;
+
         case "offer":
         case "answer":
         case "ice":
           console.log(`🔄 WebRTC ${msg.type} - Processing...`);
 
-          if (ws.inLocalRoom && msg.roomId) {
-            // WebRTC innerhalb lokaler Room
-            msg.roomId = ws.roomId;
-            broadcastToRoom(ws.roomId, msg, ws);
-            console.log(`📡 WebRTC in room ${ws.roomId}: ${msg.type}`);
+          // 🔴 CRITICAL: Determine if this is room WebRTC or external WebRTC
+          if (msg.roomId && msg.toDeviceId && msg.fromDeviceId) {
+            // Room WebRTC (specific device-to-device communication)
+            broadcastToRoom(msg.roomId, msg, ws);
+            console.log(`📡 Room WebRTC ${msg.type}: ${msg.fromDeviceId} → ${msg.toDeviceId}`);
           } else {
-            // Externer Video-Chat
-            console.log(
-              `📡 External WebRTC: ${msg.type} to ${wss.clients.size - 1} clients`
-            );
+            // External WebRTC (global broadcast for external calls)
+            console.log(`📡 External WebRTC: ${msg.type} to ${wss.clients.size - 1} clients`);
             broadcast(msg, ws);
           }
           break;

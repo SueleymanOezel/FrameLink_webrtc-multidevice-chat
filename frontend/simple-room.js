@@ -141,28 +141,38 @@ class RoomManager {
   async initiateMasterCall() {
     frameLink.log("📞 Initiating MASTER CALL for room");
     
-    // 1. Notify all room devices about master call
+    // 🔴 CRITICAL: Prevent room disconnection during external calls
+    roomState.callActiveWithExternal = true;
+    
+    // 1. Determine which device should handle the external WebRTC connection
+    const streamingDevice = this.determineExternalStreamDevice();
+    
+    // 2. Notify all room devices about master call AND streaming device
     frameLink.api.sendMessage({
       type: "master-call-start",
       roomId: roomState.roomId,
       fromDeviceId: roomState.deviceId,
+      streamingDevice: streamingDevice,
       timestamp: Date.now()
     });
     
-    // 2. Mark call as active
-    roomState.callActiveWithExternal = true;
-    
-    // 3. Determine which device should handle the external WebRTC connection
-    const streamingDevice = this.determineExternalStreamDevice();
+    // 3. Explicitly set external streaming device for all room devices
+    frameLink.api.sendMessage({
+      type: "external-stream-device",
+      roomId: roomState.roomId,
+      fromDeviceId: roomState.deviceId,
+      streamingDevice: streamingDevice,
+      timestamp: Date.now()
+    });
     
     // 4. Only the streaming device creates the actual WebRTC connection
     if (streamingDevice === roomState.deviceId) {
       frameLink.log("📞 This device will handle the external WebRTC connection");
       
-      // Create external call connection
+      // 🔴 CRITICAL: Wait for other devices to prepare, then start external call
       setTimeout(() => {
         frameLink.core.instance.callManager.startSingleDeviceCall();
-      }, 100);
+      }, 500);
     } else {
       frameLink.log(`📞 Device ${streamingDevice} will handle the external WebRTC connection`);
       
@@ -804,8 +814,18 @@ class RoomMessageHandler {
     if (message.fromDeviceId !== roomState.deviceId) {
       frameLink.log(`📞 Master call started by ${message.fromDeviceId}`);
       
-      // Mark call as active for all devices
+      // 🔴 CRITICAL: Mark call as active for all devices
       roomState.callActiveWithExternal = true;
+      
+      // 🔴 CRITICAL: Set the streaming device if provided
+      if (message.streamingDevice) {
+        frameLink.log(`📞 Master call streaming device: ${message.streamingDevice}`);
+        
+        // Set streaming device for this room
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.setExternalStreamingDevice(message.streamingDevice);
+        }
+      }
       
       // Update UI to show master call participation
       updateCallStatus("📞 Master call active - participating");
@@ -1040,7 +1060,13 @@ class RoomVideoManager {
 
       this.setupRoomPeerConnectionHandlers(peerConnection, fromDeviceId);
 
-      await peerConnection.setRemoteDescription(message.offer);
+      // 🔴 SAFETY: Check peer connection state before setting remote description
+      if (peerConnection.signalingState === "stable") {
+        await peerConnection.setRemoteDescription(message.offer);
+      } else {
+        frameLink.log(`⚠️ Room peer connection in wrong state: ${peerConnection.signalingState} - ignoring offer`);
+        return;
+      }
 
       // Add local stream
       const coreState = frameLink.api.getState();
@@ -1080,8 +1106,13 @@ class RoomVideoManager {
 
     if (peerConnection) {
       try {
-        await peerConnection.setRemoteDescription(message.answer);
-        frameLink.log(`✅ Room video answer processed from: ${fromDeviceId}`);
+        // 🔴 SAFETY: Check peer connection state before setting remote description
+        if (peerConnection.signalingState === "have-local-offer") {
+          await peerConnection.setRemoteDescription(message.answer);
+          frameLink.log(`✅ Room video answer processed from: ${fromDeviceId}`);
+        } else {
+          frameLink.log(`⚠️ Room peer connection in wrong state for answer: ${peerConnection.signalingState} - ignoring answer`);
+        }
       } catch (error) {
         frameLink.log(
           `❌ Failed to process answer from ${fromDeviceId}:`,

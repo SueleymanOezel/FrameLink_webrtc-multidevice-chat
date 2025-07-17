@@ -44,4 +44,4 @@ export const TURN_CONFIG = {
 };
 
 // Debug-Flag
-export const DEBUG = false;
+export const DEBUG = true;

@@ -273,12 +273,28 @@ class WebSocketManager {
   async handleOffer(message) {
     frameLink.log("📥 Handling offer");
 
+    // 🔴 CRITICAL: Check if this is a room offer or external offer
+    if (message.roomId) {
+      frameLink.log("📥 Room offer detected - delegating to room system");
+      // Let room system handle this
+      return;
+    }
+
+    // 🔴 EXTERNAL CALL: Create separate external call connection
     if (!frameLink.core.currentCall) {
+      frameLink.log("📥 Creating external call connection");
       frameLink.core.currentCall = PeerConnectionFactory.create();
       await this.setupLocalStream();
     }
 
     const pc = frameLink.core.currentCall;
+    
+    // 🔴 SAFETY: Check peer connection state before setting remote description
+    if (pc.signalingState !== "stable" && pc.signalingState !== "have-local-offer") {
+      frameLink.log(`⚠️ Peer connection in wrong state: ${pc.signalingState} - ignoring offer`);
+      return;
+    }
+
     await pc.setRemoteDescription(message.offer);
 
     const answer = await pc.createAnswer();
@@ -299,20 +315,49 @@ class WebSocketManager {
   async handleAnswer(message) {
     frameLink.log("📥 Handling answer");
 
+    // 🔴 CRITICAL: Check if this is a room answer or external answer
+    if (message.roomId) {
+      frameLink.log("📥 Room answer detected - delegating to room system");
+      // Let room system handle this
+      return;
+    }
+
+    // 🔴 EXTERNAL CALL: Handle external call answer
     if (frameLink.core.currentCall) {
-      await frameLink.core.currentCall.setRemoteDescription(message.answer);
+      const pc = frameLink.core.currentCall;
+      
+      // 🔴 SAFETY: Check peer connection state before setting remote description
+      if (pc.signalingState !== "have-local-offer") {
+        frameLink.log(`⚠️ Peer connection in wrong state for answer: ${pc.signalingState} - ignoring answer`);
+        return;
+      }
+      
+      try {
+        await pc.setRemoteDescription(message.answer);
+        frameLink.log("✅ External call answer processed successfully");
+      } catch (error) {
+        frameLink.log("❌ Failed to process external call answer", error);
+      }
     }
   }
 
   async handleIceCandidate(message) {
+    // 🔴 CRITICAL: Check if this is a room ICE candidate or external ICE candidate
+    if (message.roomId) {
+      frameLink.log("📥 Room ICE candidate detected - delegating to room system");
+      // Let room system handle this
+      return;
+    }
+
+    // 🔴 EXTERNAL CALL: Handle external call ICE candidate
     if (frameLink.core.currentCall && message.candidate) {
       try {
         await frameLink.core.currentCall.addIceCandidate(
           new RTCIceCandidate(message.candidate)
         );
-        frameLink.log("✅ ICE candidate added");
+        frameLink.log("✅ External ICE candidate added");
       } catch (error) {
-        frameLink.log("❌ ICE candidate error", error);
+        frameLink.log("❌ External ICE candidate error", error);
       }
     }
   }
