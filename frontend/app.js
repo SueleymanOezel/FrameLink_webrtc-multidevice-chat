@@ -70,6 +70,15 @@ class PeerConnectionFactory {
             port: candidate.port,
             protocol: candidate.protocol,
           });
+        } else if (candidate.type === "srflx") {
+          frameLink.log(`📡 STUN candidate found`, {
+            address: candidate.address,
+            port: candidate.port,
+          });
+        } else if (candidate.type === "host") {
+          frameLink.log(`🏠 Host candidate found`, {
+            address: candidate.address,
+          });
         }
 
         // Emit event for other modules to handle
@@ -78,6 +87,35 @@ class PeerConnectionFactory {
             detail: { candidate: event.candidate, peerConnection },
           })
         );
+      } else {
+        frameLink.log("🔚 ICE gathering complete");
+        // 🔴 DEBUG: Log ICE gathering stats
+        setTimeout(() => {
+          const stats = peerConnection.getStats();
+          stats.then((report) => {
+            let relayCount = 0;
+            let stunCount = 0;
+            let hostCount = 0;
+
+            report.forEach((stat) => {
+              if (stat.type === "local-candidate") {
+                if (stat.candidateType === "relay") relayCount++;
+                else if (stat.candidateType === "srflx") stunCount++;
+                else if (stat.candidateType === "host") hostCount++;
+              }
+            });
+
+            frameLink.log(
+              `📊 ICE Statistics: ${relayCount} TURN, ${stunCount} STUN, ${hostCount} HOST`
+            );
+
+            if (relayCount === 0) {
+              frameLink.log(
+                "⚠️ No TURN candidates found - NAT traversal may fail!"
+              );
+            }
+          });
+        }, 1000);
       }
     };
 
@@ -280,115 +318,95 @@ class WebSocketManager {
       return;
     }
 
-    // 🔴 EXTERNAL CALL: Create separate external call connection
-    if (!frameLink.core.currentCall) {
+    try {
+      // 🔴 GLARE HANDLING: If we already have a call, handle glare situation
+      if (frameLink.core.currentCall) {
+        const currentState = frameLink.core.currentCall.signalingState;
+        frameLink.log(`⚠️ Glare detected! Current state: ${currentState}`);
+
+        // If we're in the middle of making a call, close current and start fresh
+        if (currentState === "have-local-offer") {
+          frameLink.log("🔄 Resolving glare - closing current connection");
+          frameLink.core.currentCall.close();
+          frameLink.core.currentCall = null;
+        } else if (currentState !== "stable") {
+          frameLink.log(
+            `⚠️ Ignoring offer - connection in state: ${currentState}`
+          );
+          return;
+        }
+      }
+
+      // 🔴 EXTERNAL CALL: Create fresh external call connection
       frameLink.log("📥 Creating external call connection");
       frameLink.core.currentCall = PeerConnectionFactory.create();
       await this.setupLocalStream();
+
+      const pc = frameLink.core.currentCall;
+
+      // Ensure connection is in stable state
+      if (pc.signalingState !== "stable") {
+        frameLink.log(
+          `⚠️ New connection not stable: ${pc.signalingState} - aborting`
+        );
+        return;
+      }
+
+      await pc.setRemoteDescription(message.offer);
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      this.sendMessage({
+        type: "answer",
+        answer: answer,
+      });
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("call-started", {
+          detail: { type: "incoming", peerConnection: pc },
+        })
+      );
+
+      frameLink.log("✅ Incoming call established successfully");
+    } catch (error) {
+      frameLink.log("❌ Error handling offer:", error);
+
+      // Clean up on error
+      if (frameLink.core.currentCall) {
+        frameLink.core.currentCall.close();
+        frameLink.core.currentCall = null;
+      }
     }
-
-    const pc = frameLink.core.currentCall;
-    
-    // 🔴 SAFETY: Check peer connection state before setting remote description
-    if (pc.signalingState !== "stable" && pc.signalingState !== "have-local-offer") {
-      frameLink.log(`⚠️ Peer connection in wrong state: ${pc.signalingState} - ignoring offer`);
-      return;
-    }
-
-    await pc.setRemoteDescription(message.offer);
-
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    this.sendMessage({
-      type: "answer",
-      answer: answer,
-    });
-
-    frameLink.events.dispatchEvent(
-      new CustomEvent("call-started", {
-        detail: { type: "incoming", peerConnection: pc },
-      })
-    );
   }
 
   async handleAnswer(message) {
     frameLink.log("📥 Handling answer");
 
-    // 🔴 CRITICAL: Check if this is a room answer or external answer
-    if (message.roomId) {
-      frameLink.log("📥 Room answer detected - delegating to room system");
-      // Let room system handle this
-      return;
-    }
-
-    // 🔴 EXTERNAL CALL: Handle external call answer
     if (frameLink.core.currentCall) {
-      const pc = frameLink.core.currentCall;
-      
-      // 🔴 SAFETY: Check peer connection state before setting remote description
-      if (pc.signalingState !== "have-local-offer") {
-        frameLink.log(`⚠️ Peer connection in wrong state for answer: ${pc.signalingState} - ignoring answer`);
-        return;
-      }
-      
-      try {
-        await pc.setRemoteDescription(message.answer);
-        frameLink.log("✅ External call answer processed successfully");
-      } catch (error) {
-        frameLink.log("❌ Failed to process external call answer", error);
-      }
+      await frameLink.core.currentCall.setRemoteDescription(message.answer);
     }
   }
 
   async handleIceCandidate(message) {
-    // 🔴 CRITICAL: Check if this is a room ICE candidate or external ICE candidate
-    if (message.roomId) {
-      frameLink.log("📥 Room ICE candidate detected - delegating to room system");
-      // Let room system handle this
-      return;
-    }
-
-    // 🔴 EXTERNAL CALL: Handle external call ICE candidate
     if (frameLink.core.currentCall && message.candidate) {
       try {
         await frameLink.core.currentCall.addIceCandidate(
           new RTCIceCandidate(message.candidate)
         );
-        frameLink.log("✅ External ICE candidate added");
+        frameLink.log("✅ ICE candidate added");
       } catch (error) {
-        frameLink.log("❌ External ICE candidate error", error);
+        frameLink.log("❌ ICE candidate error", error);
       }
     }
   }
 
   sendMessage(message) {
-    // Only log non-ping/pong messages
-    if (message.type !== 'ping' && message.type !== 'pong') {
-      console.log("🔍 DEBUG: sendMessage called with:", message);
-    }
-    
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      try {
-        const messageString = JSON.stringify(message);
-        this.socket.send(messageString);
-        if (message.type !== 'ping' && message.type !== 'pong') {
-          frameLink.log("✅ Message sent successfully:", message.type);
-        }
-        return true;
-      } catch (error) {
-        frameLink.log("❌ Error sending message:", error);
-        console.error("🔍 DEBUG: Send error:", error);
-        return false;
-      }
+      this.socket.send(JSON.stringify(message));
+      return true;
     }
-    
-    const reason = !this.socket ? "No WebSocket connection" : 
-                   this.socket.readyState !== WebSocket.OPEN ? `WebSocket state: ${this.socket.readyState}` : 
-                   "Unknown error";
-    
-    frameLink.log("❌ Cannot send message - " + reason);
-    console.log("🔍 DEBUG: Send failed - " + reason);
+    frameLink.log("❌ Cannot send message - WebSocket not ready");
     return false;
   }
 
@@ -540,95 +558,93 @@ class CallManager {
   async startCall() {
     frameLink.log("🚀 Starting call...");
 
-    // 🔴 MASTER CALL: Check if we're in a room with multiple devices
-    if (window.roomState && window.roomState.inRoom && window.roomState.roomDeviceCount > 1) {
-      frameLink.log("📞 MASTER CALL: Starting room-wide external call");
-      
-      // This is a master call - notify all room devices
-      if (window.enhancedRoomSystem?.roomManager) {
-        window.enhancedRoomSystem.roomManager.initiateMasterCall();
-        return; // Let the master call handle the actual WebRTC setup
+    try {
+      // 🔴 MASTER CALL: Check if we're in a room with multiple devices
+      if (
+        window.roomState &&
+        window.roomState.inRoom &&
+        window.roomState.roomDeviceCount > 1
+      ) {
+        frameLink.log("📞 MASTER CALL: Starting room-wide external call");
+
+        // This is a master call - notify all room devices
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.initiateMasterCall();
+          return; // Let the master call handle the actual WebRTC setup
+        }
       }
+
+      // 🔴 GLARE PREVENTION: Close existing connection if any
+      if (frameLink.core.currentCall) {
+        const currentState = frameLink.core.currentCall.signalingState;
+        frameLink.log(`🔄 Closing existing call (state: ${currentState})`);
+        frameLink.core.currentCall.close();
+        frameLink.core.currentCall = null;
+
+        // Small delay to ensure cleanup
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      // Ensure media is ready
+      if (!frameLink.core.localStream) {
+        await this.mediaManager.initializeMedia();
+      }
+
+      // Create peer connection
+      this.currentCall = PeerConnectionFactory.create();
+      frameLink.core.currentCall = this.currentCall;
+
+      // Add local stream
+      frameLink.core.localStream.getTracks().forEach((track) => {
+        this.currentCall.addTrack(track, frameLink.core.localStream);
+      });
+
+      // Create and send offer
+      const offer = await this.currentCall.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+
+      await this.currentCall.setLocalDescription(offer);
+
+      this.webSocketManager.sendMessage({
+        type: "offer",
+        offer: offer,
+      });
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("call-started", {
+          detail: { type: "outgoing", peerConnection: this.currentCall },
+        })
+      );
+
+      frameLink.log("📤 Call offer sent");
+    } catch (error) {
+      frameLink.log("❌ Error starting call:", error);
+
+      // Clean up on error
+      if (this.currentCall) {
+        this.currentCall.close();
+        this.currentCall = null;
+        frameLink.core.currentCall = null;
+      }
+
+      throw error;
     }
-
-    // Ensure media is ready
-    if (!frameLink.core.localStream) {
-      await this.mediaManager.initializeMedia();
-    }
-
-    // Create peer connection
-    this.currentCall = PeerConnectionFactory.create();
-    frameLink.core.currentCall = this.currentCall;
-
-    // Add local stream
-    frameLink.core.localStream.getTracks().forEach((track) => {
-      this.currentCall.addTrack(track, frameLink.core.localStream);
-    });
-
-    // Create and send offer
-    const offer = await this.currentCall.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    });
-
-    await this.currentCall.setLocalDescription(offer);
-
-    this.webSocketManager.sendMessage({
-      type: "offer",
-      offer: offer,
-    });
-
-    frameLink.events.dispatchEvent(
-      new CustomEvent("call-started", {
-        detail: { type: "outgoing", peerConnection: this.currentCall },
-      })
-    );
-
-    frameLink.log("📤 Call offer sent");
-  }
-
-  async startSingleDeviceCall() {
-    frameLink.log("📞 Starting single device call (for master call)");
-
-    // Ensure media is ready
-    if (!frameLink.core.localStream) {
-      await this.mediaManager.initializeMedia();
-    }
-
-    // Create peer connection
-    this.currentCall = PeerConnectionFactory.create();
-    frameLink.core.currentCall = this.currentCall;
-
-    // Add local stream
-    frameLink.core.localStream.getTracks().forEach((track) => {
-      this.currentCall.addTrack(track, frameLink.core.localStream);
-    });
-
-    // Create and send offer
-    const offer = await this.currentCall.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    });
-
-    await this.currentCall.setLocalDescription(offer);
-
-    this.webSocketManager.sendMessage({
-      type: "offer",
-      offer: offer,
-    });
-
-    frameLink.events.dispatchEvent(
-      new CustomEvent("call-started", {
-        detail: { type: "outgoing", peerConnection: this.currentCall },
-      })
-    );
-
-    frameLink.log("📤 Master call offer sent");
   }
 
   endCall() {
+    frameLink.log("📞 Ending call...");
+
     if (this.currentCall) {
-      this.currentCall.close();
+      try {
+        // Close the peer connection
+        this.currentCall.close();
+        frameLink.log("🔌 PeerConnection closed");
+      } catch (error) {
+        frameLink.log("⚠️ Error closing PeerConnection:", error);
+      }
+
       this.currentCall = null;
       frameLink.core.currentCall = null;
 
@@ -644,7 +660,9 @@ class CallManager {
         })
       );
 
-      frameLink.log("📞 Call ended");
+      frameLink.log("✅ Call ended successfully");
+    } else {
+      frameLink.log("ℹ️ No active call to end");
     }
   }
 }
@@ -669,6 +687,9 @@ class FrameLinkCore {
     frameLink.log("🚀 Initializing FrameLink Core...");
 
     try {
+      // 🔴 TURN-Server Test hinzufügen
+      this.testTurnConnectivity();
+
       // Initialize media first
       await this.mediaManager.initializeMedia();
 
@@ -685,6 +706,75 @@ class FrameLinkCore {
     } catch (error) {
       frameLink.log("❌ Core initialization failed", error);
       throw error;
+    }
+  }
+
+  // 🔴 NEUE TURN-TEST METHODE
+  async testTurnConnectivity() {
+    frameLink.log("🧪 Testing TURN connectivity...");
+
+    try {
+      const pc = new RTCPeerConnection({ iceServers: TURN_CONFIG.servers });
+
+      let turnFound = false;
+      let stunFound = false;
+
+      const testPromise = new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          pc.close();
+          resolve({ turnFound, stunFound });
+        }, 8000); // 8 second timeout
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            const candidate = event.candidate;
+
+            if (candidate.type === "relay") {
+              turnFound = true;
+              frameLink.log(
+                `✅ TURN server working: ${candidate.address}:${candidate.port}`
+              );
+            } else if (candidate.type === "srflx") {
+              stunFound = true;
+              frameLink.log(
+                `✅ STUN server working: ${candidate.address}:${candidate.port}`
+              );
+            }
+
+            // If we found TURN, we're good
+            if (turnFound) {
+              clearTimeout(timeout);
+              pc.close();
+              resolve({ turnFound, stunFound });
+            }
+          }
+        };
+
+        // Create a data channel to trigger ICE gathering
+        pc.createDataChannel("test");
+        pc.createOffer().then((offer) => {
+          pc.setLocalDescription(offer);
+        });
+      });
+
+      const result = await testPromise;
+
+      if (result.turnFound) {
+        frameLink.log("🎉 TURN connectivity test PASSED");
+      } else if (result.stunFound) {
+        frameLink.log(
+          "⚠️ Only STUN working - TURN may be needed for some networks"
+        );
+      } else {
+        frameLink.log(
+          "❌ No TURN/STUN connectivity - NAT traversal will likely fail"
+        );
+      }
+
+      // Make result available globally
+      window.turnTestResult = result;
+    } catch (error) {
+      frameLink.log("❌ TURN test failed:", error);
     }
   }
 
@@ -711,25 +801,28 @@ class FrameLinkCore {
     // Main call button
     const startBtn = document.getElementById("startCall");
     if (startBtn) {
-      startBtn.disabled = false;
+      startBtn.disabled = false; // 🔴 Enable by default
       startBtn.addEventListener("click", () => {
-        // 🔴 SMART ROOM CALLING: Allow room calls with smart stream switching
-        if (window.roomState && window.roomState.inRoom && window.roomState.roomDeviceCount > 1) {
-          frameLink.log("📞 Room-Call initiated - Smart-Stream-Switching aktiviert");
+        // 🔴 NEUE LOGIK: Prüfe ob Room-Call oder normaler Call
+        if (window.roomState && window.roomState.inRoom) {
+          if (
+            window.roomState.hasCamera ||
+            window.roomState.roomDeviceCount === 1
+          ) {
+            frameLink.log("📞 Starting room-based call");
+            this.callManager.startCall();
+          } else {
+            frameLink.log("⚠️ No camera control - cannot start call");
+            // Zeige Benutzer-Feedback
+            this.updateStatus("⚠️ Please take camera control first", "orange");
+            setTimeout(() => {
+              this.updateStatus("FrameLink Core ready", "green");
+            }, 3000);
+          }
+        } else {
+          frameLink.log("📞 Starting normal call");
+          this.callManager.startCall();
         }
-        this.callManager.startCall();
-      });
-    }
-
-    // Camera toggle
-    const toggleCameraBtn = document.getElementById("toggleCameraBtn");
-    if (toggleCameraBtn) {
-      toggleCameraBtn.disabled = false;
-      toggleCameraBtn.addEventListener("click", () => {
-        this.mediaManager.toggleCamera();
-        toggleCameraBtn.textContent = this.mediaManager.cameraEnabled
-          ? "📹 Camera On"
-          : "📹 Camera Off";
       });
     }
 
@@ -847,6 +940,74 @@ window.frameLinkDebug = {
   logs: () => console.log("Use frameLink.log() for logging"),
   events: () => frameLink.events,
   api: () => frameLink.api,
+
+  // 🔴 NEUE DEBUG FUNKTIONEN
+  testTurn: async () => {
+    console.log("🧪 Testing TURN connectivity...");
+    if (frameLink.core.instance) {
+      await frameLink.core.instance.testTurnConnectivity();
+    } else {
+      console.log("❌ FrameLink not initialized yet");
+    }
+  },
+
+  checkConnection: () => {
+    const call = frameLink.core.currentCall;
+    if (call) {
+      console.log("📊 Current call state:", {
+        signalingState: call.signalingState,
+        connectionState: call.connectionState,
+        iceConnectionState: call.iceConnectionState,
+        iceGatheringState: call.iceGatheringState,
+      });
+    } else {
+      console.log("ℹ️ No active call");
+    }
+  },
+
+  getStats: async () => {
+    const call = frameLink.core.currentCall;
+    if (call) {
+      const stats = await call.getStats();
+      const candidates = [];
+      const connections = [];
+
+      stats.forEach((report) => {
+        if (
+          report.type === "local-candidate" ||
+          report.type === "remote-candidate"
+        ) {
+          candidates.push({
+            type: report.type,
+            candidateType: report.candidateType,
+            ip: report.ip,
+            port: report.port,
+            protocol: report.protocol,
+          });
+        } else if (
+          report.type === "candidate-pair" &&
+          report.state === "succeeded"
+        ) {
+          connections.push({
+            localCandidateId: report.localCandidateId,
+            remoteCandidateId: report.remoteCandidateId,
+            state: report.state,
+            bytesReceived: report.bytesReceived,
+            bytesSent: report.bytesSent,
+          });
+        }
+      });
+
+      console.log("📊 WebRTC Statistics:");
+      console.table(candidates);
+      console.table(connections);
+
+      return { candidates, connections };
+    } else {
+      console.log("ℹ️ No active call for stats");
+      return null;
+    }
+  },
 };
 
 frameLink.log("✅ Enhanced app.js loaded - Phase 1 Complete");
