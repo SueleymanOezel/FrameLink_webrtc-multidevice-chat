@@ -648,7 +648,7 @@
             const willController =
               hasFace &&
               confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold;
-            
+
             // Only log actual controller changes, not repeated detections
             if (!wasController && willController) {
               logDebug(
@@ -657,7 +657,7 @@
             } else if (wasController && !willController) {
               logDebug(`⬅️ Hook: gebe Kontrolle von ${deviceId} ab`);
             }
-            
+
             // Check if controller actually changed before processing
             if (wasController === willController) {
               return ret; // No change, skip processing
@@ -1026,38 +1026,39 @@
 
   function logDebug(message, data = null) {
     if (!AUTO_SWITCH_CONFIG.enableLogging) return;
-    
+
     // 🔴 ENHANCED ANTI-SPAM: Rate limiting for repeated messages
     const now = Date.now();
     const RATE_LIMIT_MS = 3000; // 3 Sekunden zwischen gleichen Nachrichten
-    
+
     // Create message hash (remove dynamic parts)
     const msgHash = message
-      .replace(/\d{2}:\d{2}:\d{2}/g, '')
-      .replace(/conf=\d+\.\d+/g, 'conf=X.XX')
-      .replace(/\d+ms/g, 'Xms')
-      .replace(/\d+\.\d+/g, 'X.X');
-    
+      .replace(/\d{2}:\d{2}:\d{2}/g, "")
+      .replace(/conf=\d+\.\d+/g, "conf=X.XX")
+      .replace(/\d+ms/g, "Xms")
+      .replace(/\d+\.\d+/g, "X.X");
+
     // Check rate limit
     if (!logDebug._lastLogged) logDebug._lastLogged = new Map();
-    
+
     if (logDebug._lastLogged.has(msgHash)) {
       const lastTime = logDebug._lastLogged.get(msgHash);
       if (now - lastTime < RATE_LIMIT_MS) {
         return; // Skip - too soon
       }
     }
-    
+
     // Update last logged time
     logDebug._lastLogged.set(msgHash, now);
-    
+
     // Clean old entries periodically
     if (logDebug._lastLogged.size > 100) {
-      const oldEntries = Array.from(logDebug._lastLogged.entries())
-        .filter(([_, time]) => now - time > RATE_LIMIT_MS * 5);
+      const oldEntries = Array.from(logDebug._lastLogged.entries()).filter(
+        ([_, time]) => now - time > RATE_LIMIT_MS * 5
+      );
       oldEntries.forEach(([key]) => logDebug._lastLogged.delete(key));
     }
-    
+
     // 🔴 ANTI-SPAM: Skip frequent messages
     const spamPatterns = [
       /Face State Update/i,
@@ -1106,6 +1107,55 @@
     console.log("🧪 Test: window.autoCameraSwitching.debug.testIntegration()");
     console.log("🎭 States: window.autoCameraSwitching.debug.showFaceStates()");
   }
+
+  // Add simple face detection event listener
+  window.addEventListener("face-detection-update", (event) => {
+    const { deviceId, hasFace, confidence } = event.detail;
+    console.log(
+      `🎭 Face Detection Event: ${deviceId} = ${hasFace} (${confidence})`
+    );
+    processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+  });
+
+  // Add simplified MediaPipe integration
+  if (window.frameLink?.events) {
+    window.frameLink.events.addEventListener(
+      "face-detection-change",
+      (event) => {
+        const { deviceId, hasFace, confidence } = event.detail;
+        console.log(
+          `🎭 FrameLink Face Event: ${deviceId} = ${hasFace} (${confidence})`
+        );
+        processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+      }
+    );
+  }
+
+  // Hook into existing face detection functions if available
+  setTimeout(() => {
+    if (typeof window.processFaceDetectionResults === "function") {
+      const original = window.processFaceDetectionResults;
+      window.processFaceDetectionResults = function (deviceId, results) {
+        const ret = original.apply(this, arguments);
+
+        // Extract face detection data
+        let hasFace = false;
+        let confidence = 0;
+
+        if (results?.detections?.length > 0) {
+          hasFace = true;
+          const detection = results.detections[0];
+          confidence = detection.score?.[0] || detection.score || 0.8;
+          if (Array.isArray(confidence)) confidence = confidence[0];
+        }
+
+        // Send to auto-switch
+        processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+        return ret;
+      };
+      console.log("✅ Auto-Switch: Hooked into processFaceDetectionResults");
+    }
+  }, 2000);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
