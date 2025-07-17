@@ -123,40 +123,112 @@ class RoomManager {
     // Listen to frameLink events
     frameLink.events.addEventListener("websocket-ready", () => {
       frameLink.log("🏠 WebSocket ready - Room system can connect");
+      this.updateJoinRoomButtonState();
     });
+
+    // Initial button state check
+    this.updateJoinRoomButtonState();
 
     // 🔴 NEU: Setup external call handling
     this.setupExternalCallHandling();
   }
 
+  updateJoinRoomButtonState() {
+    const joinRoomBtn = document.getElementById("join-room");
+    if (!joinRoomBtn) return;
+
+    const isWebSocketReady = frameLink.api.isReady();
+    const isAlreadyInRoom = roomState.inRoom;
+
+    if (isAlreadyInRoom) {
+      joinRoomBtn.disabled = true;
+      joinRoomBtn.textContent = "✅ Multi-Device Active";
+      joinRoomBtn.style.background = "#4caf50";
+    } else if (isWebSocketReady) {
+      joinRoomBtn.disabled = false;
+      joinRoomBtn.textContent = "🚪 Activate Multi-Device";
+      joinRoomBtn.style.background = "#2196f3";
+    } else {
+      joinRoomBtn.disabled = true;
+      joinRoomBtn.textContent = "⏳ Connecting...";
+      joinRoomBtn.style.background = "#ccc";
+    }
+
+    frameLink.log(`🔘 Join button state: WebSocket=${isWebSocketReady}, InRoom=${isAlreadyInRoom}`);
+  }
+
+  showErrorFeedback(message) {
+    const statusElement = document.getElementById("status");
+    if (statusElement) {
+      statusElement.textContent = "❌ " + message;
+      statusElement.style.borderLeftColor = "#f44336";
+      statusElement.style.backgroundColor = "#ffebee";
+      statusElement.style.color = "#c62828";
+      
+      // Clear after 5 seconds
+      setTimeout(() => {
+        statusElement.style.borderLeftColor = "#2196f3";
+        statusElement.style.backgroundColor = "white";
+        statusElement.style.color = "#333";
+      }, 5000);
+    }
+    
+    frameLink.log("❌ Error feedback: " + message);
+  }
+
+  showSuccessFeedback(message) {
+    const statusElement = document.getElementById("status");
+    if (statusElement) {
+      statusElement.textContent = "✅ " + message;
+      statusElement.style.borderLeftColor = "#4caf50";
+      statusElement.style.backgroundColor = "#e8f5e8";
+      statusElement.style.color = "#2e7d32";
+      
+      // Clear after 3 seconds
+      setTimeout(() => {
+        statusElement.style.borderLeftColor = "#2196f3";
+        statusElement.style.backgroundColor = "white";
+        statusElement.style.color = "#333";
+      }, 3000);
+    }
+    
+    frameLink.log("✅ Success feedback: " + message);
+  }
+
   async joinRoom() {
     if (!frameLink.api.isReady()) {
-      alert("Server noch nicht verbunden!");
+      this.showErrorFeedback("Server noch nicht verbunden!");
       return;
     }
 
     frameLink.log("🚪 Joining multi-device room...");
 
+    // Update button to show loading state
+    this.updateJoinRoomButtonState();
+
     // Detect existing call before joining
     this.detectExistingCall();
 
-    // Send join request
-    const success = frameLink.api.sendMessage({
+    // Send join request with error handling
+    const message = {
       type: "join-room",
       roomId: roomState.roomId,
       deviceId: roomState.deviceId,
-    });
+    };
+    
+    frameLink.log("🔍 Sending join-room message:", message);
+    console.log("🔍 DEBUG: About to call frameLink.api.sendMessage with:", message);
+    
+    const success = frameLink.api.sendMessage(message);
+    
+    console.log("🔍 DEBUG: sendMessage returned:", success);
 
     if (success) {
       roomState.inRoom = true;
       roomState.isLocalRoom = true;
 
       // Update UI
-      const joinRoomBtn = document.getElementById("join-room");
-      if (joinRoomBtn) {
-        joinRoomBtn.disabled = true;
-        joinRoomBtn.textContent = "✅ Multi-Device Active";
-      }
+      this.updateJoinRoomButtonState();
 
       const roomControls = document.getElementById("room-controls");
       if (roomControls) {
@@ -176,6 +248,10 @@ class RoomManager {
       }, 500);
 
       frameLink.log("✅ Successfully joined room");
+      this.showSuccessFeedback("Multi-Device aktiviert!");
+    } else {
+      this.showErrorFeedback("Verbindung fehlgeschlagen! Bitte versuche es erneut.");
+      frameLink.log("❌ Failed to send join-room message");
     }
   }
 
@@ -183,12 +259,18 @@ class RoomManager {
     if (!roomState.inRoom) return;
 
     frameLink.log("🔄 Requesting camera control");
-    frameLink.api.sendMessage({
+    
+    const success = frameLink.api.sendMessage({
       type: "camera-request",
       roomId: roomState.roomId,
       deviceId: roomState.deviceId,
       fromDeviceId: roomState.deviceId,
     });
+    
+    if (!success) {
+      this.showErrorFeedback("Kamera-Anfrage fehlgeschlagen!");
+      frameLink.log("❌ Failed to send camera-request message");
+    }
   }
 
   detectExistingCall() {
@@ -1498,6 +1580,35 @@ class EnhancedRoomSystem {
       forceJoin: () => this.roomManager.joinRoom(),
       forceCamera: () => this.roomManager.requestCameraControl(),
       faceStates: () => Array.from(roomState.faceDetectionStates.entries()),
+      
+      // Test functions for debugging
+      testWebSocketState: () => {
+        console.log("🔍 WebSocket Debug Info:");
+        console.log("  frameLink.api.isReady():", frameLink.api.isReady());
+        console.log("  frameLink.core.initialized:", frameLink.core.initialized);
+        console.log("  frameLink.core.webSocketReady:", frameLink.core.webSocketReady);
+        console.log("  WebSocket state:", frameLink.core.instance?.webSocketManager?.socket?.readyState);
+        console.log("  WebSocket.OPEN:", WebSocket.OPEN);
+      },
+      
+      testSendMessage: () => {
+        console.log("🔍 Testing sendMessage:");
+        const testMessage = { type: "test", timestamp: Date.now() };
+        const result = frameLink.api.sendMessage(testMessage);
+        console.log("  Result:", result);
+        return result;
+      },
+      
+      testJoinRoom: () => {
+        console.log("🔍 Testing join room click:");
+        const button = document.getElementById("join-room");
+        console.log("  Button found:", !!button);
+        console.log("  Button disabled:", button?.disabled);
+        console.log("  Button text:", button?.textContent);
+        if (button) {
+          button.click();
+        }
+      }
     };
   }
 

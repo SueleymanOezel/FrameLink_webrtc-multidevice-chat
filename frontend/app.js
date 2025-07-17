@@ -318,11 +318,30 @@ class WebSocketManager {
   }
 
   sendMessage(message) {
+    console.log("🔍 DEBUG: sendMessage called with:", message);
+    console.log("🔍 DEBUG: WebSocket state:", this.socket?.readyState);
+    console.log("🔍 DEBUG: WebSocket.OPEN constant:", WebSocket.OPEN);
+    
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(message));
-      return true;
+      try {
+        const messageString = JSON.stringify(message);
+        console.log("🔍 DEBUG: Sending message string:", messageString);
+        this.socket.send(messageString);
+        frameLink.log("✅ Message sent successfully:", message.type);
+        return true;
+      } catch (error) {
+        frameLink.log("❌ Error sending message:", error);
+        console.error("🔍 DEBUG: Send error:", error);
+        return false;
+      }
     }
-    frameLink.log("❌ Cannot send message - WebSocket not ready");
+    
+    const reason = !this.socket ? "No WebSocket connection" : 
+                   this.socket.readyState !== WebSocket.OPEN ? `WebSocket state: ${this.socket.readyState}` : 
+                   "Unknown error";
+    
+    frameLink.log("❌ Cannot send message - " + reason);
+    console.log("🔍 DEBUG: Send failed - " + reason);
     return false;
   }
 
