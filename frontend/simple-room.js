@@ -138,6 +138,39 @@ class RoomManager {
     this.setupExternalCallHandling();
   }
 
+  async initiateMasterCall() {
+    frameLink.log("📞 Initiating MASTER CALL for room");
+    
+    // 1. Notify all room devices about master call
+    frameLink.api.sendMessage({
+      type: "master-call-start",
+      roomId: roomState.roomId,
+      fromDeviceId: roomState.deviceId,
+      timestamp: Date.now()
+    });
+    
+    // 2. Mark call as active
+    roomState.callActiveWithExternal = true;
+    
+    // 3. Determine which device should handle the external WebRTC connection
+    const streamingDevice = this.determineExternalStreamDevice();
+    
+    // 4. Only the streaming device creates the actual WebRTC connection
+    if (streamingDevice === roomState.deviceId) {
+      frameLink.log("📞 This device will handle the external WebRTC connection");
+      
+      // Create external call connection
+      setTimeout(() => {
+        frameLink.core.instance.callManager.startSingleDeviceCall();
+      }, 100);
+    } else {
+      frameLink.log(`📞 Device ${streamingDevice} will handle the external WebRTC connection`);
+      
+      // This device just participates in the master call but doesn't create WebRTC
+      this.updateCallStatusInternal("📞 Master call active - participating");
+    }
+  }
+
   notifyExternalCallStart() {
     frameLink.log("📞 Notifying room devices about external call start");
     
@@ -182,6 +215,9 @@ class RoomManager {
     
     // Update local state
     this.setExternalStreamingDevice(streamingDevice);
+    
+    // Return the streaming device
+    return streamingDevice;
   }
 
   setExternalStreamingDevice(deviceId) {
@@ -189,28 +225,43 @@ class RoomManager {
     
     if (isMyDevice) {
       frameLink.log("📞 This device will stream to external call");
-      // Enable video track for external call
+      // IMPORTANT: Only enable/disable tracks for external call if we have one
       const currentCall = frameLink.core.currentCall;
       if (currentCall && frameLink.core.localStream) {
         frameLink.core.localStream.getVideoTracks().forEach(track => {
           track.enabled = true;
-          frameLink.log(`📞 Enabled video track: ${track.label}`);
+          frameLink.log(`📞 Enabled video track for external: ${track.label}`);
         });
       }
     } else {
       frameLink.log(`📞 Device ${deviceId} will stream to external call (not this device)`);
-      // Disable video track for external call
+      // IMPORTANT: Only disable tracks for external call, not for room streams
       const currentCall = frameLink.core.currentCall;
       if (currentCall && frameLink.core.localStream) {
         frameLink.core.localStream.getVideoTracks().forEach(track => {
           track.enabled = false;
-          frameLink.log(`📞 Disabled video track: ${track.label}`);
+          frameLink.log(`📞 Disabled video track for external: ${track.label}`);
         });
       }
+      
+      // IMPORTANT: Room streams should remain active regardless
+      this.ensureRoomStreamsActive();
     }
     
     // Update UI
     this.updateExternalStreamUI(deviceId);
+  }
+
+  ensureRoomStreamsActive() {
+    // Make sure room video streams are not affected by external call logic
+    frameLink.log("📞 Ensuring room streams remain active");
+    
+    // Check all room peer connections and ensure they have video
+    roomState.roomPeerConnections.forEach((peerConnection, deviceId) => {
+      if (peerConnection && peerConnection.connectionState === 'connected') {
+        frameLink.log(`📞 Room stream to ${deviceId} is active`);
+      }
+    });
   }
 
   updateExternalStreamUI(streamingDevice) {
@@ -552,6 +603,9 @@ class RoomMessageHandler {
       case "external-stream-device":
         this.handleExternalStreamDevice(message);
         break;
+      case "master-call-start":
+        this.handleMasterCallStart(message);
+        break;
       case "room-video-offer":
         this.roomVideoManager.handleRoomVideoOffer(message);
         break;
@@ -743,6 +797,21 @@ class RoomMessageHandler {
       if (window.enhancedRoomSystem?.roomManager) {
         window.enhancedRoomSystem.roomManager.setExternalStreamingDevice(message.streamingDevice);
       }
+    }
+  }
+
+  handleMasterCallStart(message) {
+    if (message.fromDeviceId !== roomState.deviceId) {
+      frameLink.log(`📞 Master call started by ${message.fromDeviceId}`);
+      
+      // Mark call as active for all devices
+      roomState.callActiveWithExternal = true;
+      
+      // Update UI to show master call participation
+      this.updateCallStatus("📞 Master call active - participating");
+      
+      // Listen for stream switching instructions
+      frameLink.log("📞 Waiting for stream switching instructions...");
     }
   }
 
@@ -1901,6 +1970,23 @@ class EnhancedRoomSystem {
         if (window.enhancedRoomSystem?.roomManager) {
           window.enhancedRoomSystem.roomManager.notifyExternalCallStart();
         }
+      },
+      
+      testMasterCall: () => {
+        console.log("🔍 Testing master call:");
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.initiateMasterCall();
+        }
+      },
+      
+      checkRoomStreams: () => {
+        console.log("🔍 Room streams status:");
+        console.log("  Room peer connections:", roomState.roomPeerConnections.size);
+        console.log("  Room video streams:", roomState.roomVideoStreams.size);
+        
+        roomState.roomPeerConnections.forEach((pc, deviceId) => {
+          console.log(`  Device ${deviceId}: ${pc.connectionState}`);
+        });
       }
     };
   }

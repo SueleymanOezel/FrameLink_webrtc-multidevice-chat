@@ -495,13 +495,14 @@ class CallManager {
   async startCall() {
     frameLink.log("🚀 Starting call...");
 
-    // 🔴 SMART ROOM CALLING: Room-Anrufe sind erlaubt, aber nur das aktive Gerät streamt
+    // 🔴 MASTER CALL: Check if we're in a room with multiple devices
     if (window.roomState && window.roomState.inRoom && window.roomState.roomDeviceCount > 1) {
-      frameLink.log("📞 Room-Call: Mehrere Geräte im Room - verwende Smart-Stream-Switching");
+      frameLink.log("📞 MASTER CALL: Starting room-wide external call");
       
-      // Notify other room devices about external call
+      // This is a master call - notify all room devices
       if (window.enhancedRoomSystem?.roomManager) {
-        window.enhancedRoomSystem.roomManager.notifyExternalCallStart();
+        window.enhancedRoomSystem.roomManager.initiateMasterCall();
+        return; // Let the master call handle the actual WebRTC setup
       }
     }
 
@@ -539,6 +540,45 @@ class CallManager {
     );
 
     frameLink.log("📤 Call offer sent");
+  }
+
+  async startSingleDeviceCall() {
+    frameLink.log("📞 Starting single device call (for master call)");
+
+    // Ensure media is ready
+    if (!frameLink.core.localStream) {
+      await this.mediaManager.initializeMedia();
+    }
+
+    // Create peer connection
+    this.currentCall = PeerConnectionFactory.create();
+    frameLink.core.currentCall = this.currentCall;
+
+    // Add local stream
+    frameLink.core.localStream.getTracks().forEach((track) => {
+      this.currentCall.addTrack(track, frameLink.core.localStream);
+    });
+
+    // Create and send offer
+    const offer = await this.currentCall.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
+
+    await this.currentCall.setLocalDescription(offer);
+
+    this.webSocketManager.sendMessage({
+      type: "offer",
+      offer: offer,
+    });
+
+    frameLink.events.dispatchEvent(
+      new CustomEvent("call-started", {
+        detail: { type: "outgoing", peerConnection: this.currentCall },
+      })
+    );
+
+    frameLink.log("📤 Master call offer sent");
   }
 
   endCall() {
