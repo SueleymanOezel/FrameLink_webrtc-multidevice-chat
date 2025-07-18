@@ -1308,43 +1308,41 @@ function logDebug(...args) {
 
 // Debounce-Handler für Face-Detection-Events
 let debounceTimer = null;
-let lastDeviceId = null;
+let lastSwitchDeviceId = null;
 
-async function processFaceDetectionForAutoSwitch(
-  deviceId,
-  hasFace,
-  confidence
-) {
-  logDebug(`🎭 FrameLink Face Event: ${deviceId} = ${hasFace} (${confidence})`);
-
-  if (!hasFace || confidence < 0.6) return;
-
-  // Nur bei Gerätewechsel oder neuem Face-Event triggern
-  if (lastDeviceId !== deviceId) {
-    lastDeviceId = deviceId;
-    if (debounceTimer) clearTimeout(debounceTimer);
-
-    debounceTimer = setTimeout(async () => {
-      try {
-        logDebug(`🔄 Switching to device: ${deviceId}`);
-        if (typeof switchToDevice === "function") {
-          await switchToDevice(deviceId);
-          logDebug(`✅ Switched to device: ${deviceId}`);
-        } else {
-          logDebug("❌ switchToDevice is not defined");
-        }
-      } catch (err) {
-        logDebug("❌ Error in switchToDevice:", err);
-      }
-    }, 500); // 500ms Stabilitätszeit
+async function autoSwitchToDevice(deviceId, confidence) {
+  // Nur wechseln, wenn sich das Zielgerät ändert
+  if (lastSwitchDeviceId === deviceId) {
+    logDebug(
+      "[Auto-Switch] Kein Wechsel nötig, Gerät bereits aktiv:",
+      deviceId
+    );
+    return;
+  }
+  lastSwitchDeviceId = deviceId;
+  logDebug(
+    "➡️ Hook: wechsle Kontrolle auf",
+    deviceId,
+    `(conf=${confidence.toFixed(2)})`
+  );
+  try {
+    await switchToDevice(deviceId);
+  } catch (err) {
+    logDebug("❌ Fehler beim switchToDevice:", err);
   }
 }
 
-// Event-Bridge für verschiedene Quellen
+function handleFaceDetectionSwitchEvent(deviceId, hasFace, confidence) {
+  if (!hasFace || confidence < 0.7) return;
+
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    autoSwitchToDevice(deviceId, confidence);
+  }, 500);
+}
+
+// Beispiel-Event-Handler (anpassen je nach Event-Namen)
 window.addEventListener("face-detection-for-auto-switch", (event) => {
   const { deviceId, hasFace, confidence } = event.detail;
-  processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+  handleFaceDetectionSwitchEvent(deviceId, hasFace, confidence);
 });
-
-// Optional: Legacy-Kompatibilität
-window.processFaceDetectionForAutoSwitch = processFaceDetectionForAutoSwitch;
