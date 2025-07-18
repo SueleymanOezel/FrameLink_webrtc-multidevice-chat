@@ -123,6 +123,35 @@
     }
   }
 
+  // ─── INTEGRATION MIT simple-room.js ───────────────────────────────
+
+  // Exponiere den internen Switch‑Handler für den direkten Hook
+  window.autoCameraSwitching = window.autoCameraSwitching || {};
+  window.autoCameraSwitching._processFaceDetection =
+    processFaceDetectionForAutoSwitch;
+
+  // Legacy‑Hook
+  window.processFaceDetectionForAutoSwitch = processFaceDetectionForAutoSwitch;
+
+  // 1) Global Event Bridge vom simple-room.js abfangen
+  window.addEventListener("face-detection-for-auto-switch", (event) => {
+    const { deviceId, hasFace, confidence } = event.detail;
+    processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+  });
+
+  // 2) Enhanced FrameLink Event abfangen
+  if (window.frameLink?.events) {
+    window.frameLink.events.addEventListener(
+      "auto-switch-face-detection",
+      (event) => {
+        const { deviceId, hasFace, confidence } = event.detail;
+        processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+      }
+    );
+  }
+
+  console.log("🔗 Auto‑Switch Integration mit simple-room.js aktiviert");
+
   window.autoCameraSwitching._processFaceDetection =
     processFaceDetectionForAutoSwitch;
 
