@@ -48,6 +48,23 @@
   function processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence) {
     if (!autoCameraSwitching.enabled) return;
 
+    // 🔴 AUTO-ASSIGN: If no one has camera, give it to first face detected
+    if (
+      !autoCameraSwitching.currentControllingDevice &&
+      hasFace &&
+      confidence > 0.7
+    ) {
+      logDebug(`🎯 Auto-assigning initial camera control to: ${deviceId}`);
+      autoCameraSwitching.currentControllingDevice = deviceId;
+
+      // Trigger camera request
+      executeIntegratedCameraSwitch(deviceId, {
+        reason: "initial-face-detection",
+        confidence,
+        automatic: true,
+      });
+    }
+
     // 🔴 CRITICAL FIX: Initialize currentControllingDevice if not set
     if (
       !autoCameraSwitching.currentControllingDevice &&
@@ -101,20 +118,24 @@
     state.confidence = confidence;
     state.lastUpdate = currentTime;
 
+    // Stability Tracking
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
-      if (!previousHasFace) {
+      if (!previousHasFace || state.stableDetectionStart === null) {
+        // Neue Gesichtserkennung gestartet
         state.stableDetectionStart = currentTime;
         state.consecutiveDetections = 1;
         state.averageConfidence = confidence;
       } else {
+        // Fortlaufende Erkennung
         state.consecutiveDetections++;
         state.averageConfidence = (state.averageConfidence + confidence) / 2;
       }
 
-      const detectionDuration =
-        currentTime - (state.stableDetectionStart || currentTime);
-      state.isStable = detectionDuration >= AUTO_SWITCH_CONFIG.stabilityPeriod;
+      // 🔴 FIX: Stability Check - use consecutiveDetections instead of time
+      const STABILITY_FRAMES = 3; // Nach 3 Frames = stabil
+      state.isStable = state.consecutiveDetections >= STABILITY_FRAMES;
     } else {
+      // Kein Gesicht oder zu niedrige Confidence
       state.stableDetectionStart = null;
       state.consecutiveDetections = 0;
       state.isStable = false;
