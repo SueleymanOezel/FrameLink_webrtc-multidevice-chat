@@ -130,36 +130,30 @@
         hasFace: false,
         previousConfidence: 0,
         stableDetectionStart: null,
-        consecutiveDetections: 0,
         isStable: false,
         lastUpdate: now,
       };
     }
-    const prevHasFace = state.hasFace;
-    const prevConf = state.previousConfidence;
-    // --- stability sliding-window logic ---
+    const wasStable = state.isStable;
+
+    // LOGIC: Only set stableDetectionStart when Detection Starts!
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
-      if (!state.stableDetectionStart) {
+      if (!state.hasFace || !state.stableDetectionStart) {
+        // Face appears for first time (or after a lost)
         state.stableDetectionStart = now;
-        state.consecutiveDetections = 1;
-      } else {
-        state.consecutiveDetections++;
       }
-      // Only "isStable" after 800ms continuous detection
+      // Check if now stable
       if (
         now - state.stableDetectionStart >=
         AUTO_SWITCH_CONFIG.stabilityPeriod
       ) {
-        if (!state.isStable) {
-          logDebug(`[FaceState] ${deviceId} reached stability after 800ms`);
-        }
         state.isStable = true;
       } else {
         state.isStable = false;
       }
     } else {
+      // Detection lost: reset window
       state.stableDetectionStart = null;
-      state.consecutiveDetections = 0;
       state.isStable = false;
     }
 
@@ -168,14 +162,9 @@
     state.lastUpdate = now;
     autoCameraSwitching.faceStates.set(deviceId, state);
 
-    // Log face state changes
-    if (
-      prevHasFace !== hasFace ||
-      state.isStable !== !!prevHasFace ||
-      Math.abs(prevConf - confidence) > 0.08
-    ) {
+    if (wasStable !== state.isStable || (!wasStable && state.isStable)) {
       logDebug(
-        `[FaceState] ${deviceId} hasFace=${hasFace} stable=${state.isStable} conf=${confidence.toFixed(2)}`
+        `[FaceState] ${deviceId} isStable=${state.isStable} (after ${AUTO_SWITCH_CONFIG.stabilityPeriod}ms)`
       );
     }
   }
@@ -183,7 +172,9 @@
   function evaluateSwitchToDevice(deviceId, confidence) {
     const state = autoCameraSwitching.faceStates.get(deviceId);
     if (!state || !state.isStable) {
-      logDebug(`[Auto-Switch] ${deviceId} not stable, skipping switch.`);
+      logDebug(
+        `[Auto-Switch] ${deviceId} isStable=${state ? state.isStable : "undefined"}, skipping switch.`
+      );
       return;
     }
 
