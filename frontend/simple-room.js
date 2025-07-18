@@ -875,12 +875,34 @@ class RoomMessageHandler {
       `📹 Camera switch: target=${targetDeviceId}, my=${myDeviceId}`
     );
 
+    const iWasController =
+      roomState.hasCamera && roomState.amCurrentCameraMaster;
+
     if (targetDeviceId === myDeviceId) {
       // ✅ I get camera control
       this.activateCameraControl();
+
+      if (roomState.callActiveWithExternal && !frameLink.core.currentCall) {
+        frameLink.log("📞 Call state missing - starting takeover");
+        this.initiateCallTakeover();
+      }
     } else {
       // ❌ Another device gets camera control
       this.deactivateCameraControl(targetDeviceId);
+      if (iWasController && frameLink.core.currentCall) {
+        frameLink.core.currentCall.getSenders().forEach((sender) => {
+          if (sender.track && sender.track.kind === "video") {
+            try {
+              sender.track.stop();
+              frameLink.log(
+                `🛑 Stopped previous call track: ${sender.track.label}`
+              );
+            } catch (err) {
+              frameLink.log("⚠️ Failed to stop track", err);
+            }
+          }
+        });
+      }
     }
 
     this.updateExternalCallController(targetDeviceId);
@@ -1178,6 +1200,20 @@ class RoomMessageHandler {
     frameLink.log(
       `⏸️ Deactivating camera control - ${controllingDeviceId} takes over`
     );
+
+    const currentCall = frameLink.core.currentCall;
+    if (currentCall) {
+      currentCall.getSenders().forEach((sender) => {
+        if (sender.track && sender.track.kind === "video") {
+          try {
+            sender.track.stop();
+            frameLink.log(`🛑 Stopped call track: ${sender.track.label}`);
+          } catch (err) {
+            frameLink.log("⚠️ Failed to stop track", err);
+          }
+        }
+      });
+    }
 
     roomState.hasCamera = false;
     roomState.amCurrentCameraMaster = false;
