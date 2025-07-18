@@ -93,15 +93,16 @@
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
       if (!state.stableDetectionStart) {
         state.stableDetectionStart = now;
-        state.consecutiveDetections = 1;
+        state.consecutiveDetections = 1; // Start counting detections
       } else {
-        // Count how many times we've seen a detection in the window
-        state.consecutiveDetections += 1;
+        state.consecutiveDetections += 1; // Increment detection count
       }
-      // If window is long enough, mark as stable
+
+      // Check if stability period is met
       if (
         now - state.stableDetectionStart >=
-        AUTO_SWITCH_CONFIG.stabilityPeriod
+          AUTO_SWITCH_CONFIG.stabilityPeriod &&
+        state.consecutiveDetections >= 3 // Require at least 3 detections
       ) {
         if (!state.isStable) {
           state.isStable = true;
@@ -113,7 +114,7 @@
         state.isStable = false;
       }
     } else {
-      // Face lost or confidence too low: reset timer and stability
+      // Reset stability and detection count if face is lost
       state.stableDetectionStart = null;
       state.isStable = false;
       state.consecutiveDetections = 0;
