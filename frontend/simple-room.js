@@ -1266,57 +1266,71 @@ class RoomVideoManager {
   startPeerDiscovery() {
     frameLink.log("🔍 Starting enhanced peer discovery process");
 
-    // 🔴 EXTERNAL CALL SCHUTZ
-    const hasExternalCall =
-      frameLink.core.currentCall &&
-      frameLink.core.currentCall.connectionState === "connected";
+    // 🔴 CRITICAL: Check for external call protection
+    const checkExternalCall = () => {
+      return (
+        frameLink.core.currentCall &&
+        (frameLink.core.currentCall.connectionState === "connected" ||
+          frameLink.core.currentCall.connectionState === "connecting")
+      );
+    };
 
-    if (hasExternalCall) {
-      frameLink.log("📞 External call detected - careful peer discovery mode");
+    // Initial peer request only if no external call
+    if (!checkExternalCall()) {
+      frameLink.api.sendMessage({
+        type: "request-room-peers",
+        roomId: roomState.roomId,
+        deviceId: roomState.deviceId,
+      });
+    } else {
+      frameLink.log(
+        "📞 External call active - skipping initial peer discovery"
+      );
     }
 
-    // Request list of existing peers
-    frameLink.api.sendMessage({
-      type: "request-room-peers",
-      roomId: roomState.roomId,
-      deviceId: roomState.deviceId,
-    });
+    // 🔴 MUCH MORE CONSERVATIVE PEER DISCOVERY
+    this.peerDiscoveryInterval = setInterval(() => {
+      const hasExternalCall = checkExternalCall();
 
-    // 🔴 SANFTERE PEER DISCOVERY
-    this.peerDiscoveryInterval = setInterval(
-      () => {
-        // Nur re-announce wenn keine kritische Operation läuft
-        if (
-          !hasExternalCall ||
-          Date.now() - (this.lastDiscovery || 0) > 10000
-        ) {
+      // If external call is active, be MUCH more conservative
+      if (hasExternalCall) {
+        // Only announce every 30 seconds if external call active
+        if (Date.now() - (this.lastDiscovery || 0) > 30000) {
+          frameLink.log("📞 External call active - limited room announcement");
           this.announceRoomPeer();
           this.lastDiscovery = Date.now();
         }
+        return; // Skip all other discovery when external call active
+      }
 
-        // Check für missing connections - aber weniger aggressiv
-        const connectedCount = roomState.roomPeerConnections.size;
-        const expectedCount = roomState.roomDeviceCount - 1;
+      // Normal peer discovery only when NO external call
+      const connectedCount = roomState.roomPeerConnections.size;
+      const expectedCount = roomState.roomDeviceCount - 1;
 
-        if (
-          connectedCount < expectedCount &&
-          Date.now() - (this.lastPeerRequest || 0) > 8000
-        ) {
-          frameLink.log(
-            `⚠️ Missing connections: ${connectedCount}/${expectedCount}`
-          );
-          frameLink.api.sendMessage({
-            type: "request-room-peers",
-            roomId: roomState.roomId,
-            deviceId: roomState.deviceId,
-          });
-          this.lastPeerRequest = Date.now();
-        }
-      },
-      hasExternalCall ? 8000 : 5000
-    ); // Langsamere Discovery wenn External Call aktiv
+      // Regular announcement every 15 seconds (instead of 5)
+      if (Date.now() - (this.lastDiscovery || 0) > 15000) {
+        this.announceRoomPeer();
+        this.lastDiscovery = Date.now();
+      }
 
-    // Set timeout for initial peer discovery
+      // Peer request only if really missing connections
+      if (
+        connectedCount < expectedCount &&
+        Date.now() - (this.lastPeerRequest || 0) > 20000
+      ) {
+        frameLink.log(
+          `⚠️ Missing connections: ${connectedCount}/${expectedCount}`
+        );
+        frameLink.api.sendMessage({
+          type: "request-room-peers",
+          roomId: roomState.roomId,
+          deviceId: roomState.deviceId,
+        });
+        this.lastPeerRequest = Date.now();
+      }
+    }, 10000); // Check every 10 seconds instead of 5
+
+    // Longer timeout for initial discovery
     setTimeout(() => {
       this.completePeerDiscovery();
     }, this.peerDiscoveryTimeout);
