@@ -35,6 +35,14 @@
     switchCount: 0,
   };
 
+  // ─── Legacy‑Integration Hook für simple-room.js ───
+  window.autoCameraSwitching = {
+    _processFaceDetection: null, // wird weiter unten gebunden
+    enable: () => {}, // stub, um Warnung zu verhindern
+    disable: () => {},
+    updateConfig: () => {},
+  };
+
   // ========================================
   // FACE DETECTION DECISION ENGINE
   // ========================================
@@ -114,6 +122,9 @@
       }
     }
   }
+
+  window.autoCameraSwitching._processFaceDetection =
+    processFaceDetectionForAutoSwitch;
 
   function findBestAlternativeDevice() {
     const arr = [];
