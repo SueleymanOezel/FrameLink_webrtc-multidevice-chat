@@ -12,65 +12,31 @@ export const TURN_CONFIG = {
   username: "18dd3dc42100ea8643228a68",
   credential: "9u70h1tuJ9YA0ONB",
   servers: [
-    // STUN Servers (funktionieren laut Logs)
+    // STUN Servers
+    { urls: "stun:stun.relay.metered.ca:80" }, // NEU: Metered STUN
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
 
-    // 🔴 METERED TURN (deine aktuellen - scheinen nicht zu funktionieren)
+    // METERED TURN mit NEUEN URLs
     {
-      urls: "turn:global.relay.metered.ca:3478?transport=udp",
+      urls: "turn:standard.relay.metered.ca:80",
       username: "18dd3dc42100ea8643228a68",
       credential: "9u70h1tuJ9YA0ONB",
     },
     {
-      urls: "turns:global.relay.metered.ca:443?transport=udp",
+      urls: "turn:standard.relay.metered.ca:80?transport=tcp",
       username: "18dd3dc42100ea8643228a68",
       credential: "9u70h1tuJ9YA0ONB",
     },
     {
-      urls: "turn:global.relay.metered.ca:80?transport=tcp",
+      urls: "turn:standard.relay.metered.ca:443",
       username: "18dd3dc42100ea8643228a68",
       credential: "9u70h1tuJ9YA0ONB",
     },
     {
-      urls: "turns:global.relay.metered.ca:443?transport=tcp",
+      urls: "turns:standard.relay.metered.ca:443?transport=tcp",
       username: "18dd3dc42100ea8643228a68",
       credential: "9u70h1tuJ9YA0ONB",
-    },
-    {
-      urls: "turn:global.relay.metered.ca:80",
-      username: "18dd3dc42100ea8643228a68",
-      credential: "9u70h1tuJ9YA0ONB",
-    },
-
-    // 🔴 ZUSÄTZLICHE KOSTENLOSE TURN-SERVER (als Backup)
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-
-    // 🔴 WEITERE BACKUP TURN-SERVER
-    {
-      urls: "turn:numb.viagenie.ca",
-      username: "webrtc@live.com",
-      credential: "muazkh",
-    },
-    {
-      urls: "turn:relay.backups.cz",
-      username: "webrtc",
-      credential: "webrtc",
     },
   ],
 };
