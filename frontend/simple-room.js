@@ -243,30 +243,40 @@ class RoomManager {
 
     if (isMyDevice) {
       frameLink.log("📞 This device will stream to external call");
-      // IMPORTANT: Only enable/disable tracks for external call if we have one
+      // WICHTIG: Aktiviere tracks nur für externes Call, nicht room streams
       const currentCall = frameLink.core.currentCall;
-      if (currentCall && frameLink.core.localStream) {
-        frameLink.core.localStream.getVideoTracks().forEach((track) => {
-          track.enabled = true;
-          frameLink.log(`📞 Enabled video track for external: ${track.label}`);
+      if (currentCall) {
+        // Get senders and enable video
+        currentCall.getSenders().forEach((sender) => {
+          if (sender.track && sender.track.kind === "video") {
+            sender.track.enabled = true;
+            frameLink.log(
+              `📞 Enabled external video track: ${sender.track.label}`
+            );
+          }
         });
       }
     } else {
       frameLink.log(
         `📞 Device ${deviceId} will stream to external call (not this device)`
       );
-      // IMPORTANT: Only disable tracks for external call, not for room streams
+      // WICHTIG: Deaktiviere nur externe Call tracks
       const currentCall = frameLink.core.currentCall;
-      if (currentCall && frameLink.core.localStream) {
-        frameLink.core.localStream.getVideoTracks().forEach((track) => {
-          track.enabled = false;
-          frameLink.log(`📞 Disabled video track for external: ${track.label}`);
+      if (currentCall) {
+        // Disable video for external call only
+        currentCall.getSenders().forEach((sender) => {
+          if (sender.track && sender.track.kind === "video") {
+            sender.track.enabled = false;
+            frameLink.log(
+              `📞 Disabled external video track: ${sender.track.label}`
+            );
+          }
         });
       }
-
-      // IMPORTANT: Room streams should remain active regardless
-      this.ensureRoomStreamsActive();
     }
+
+    // WICHTIG: Room streams bleiben IMMER aktiv
+    this.ensureRoomStreamsActive();
 
     // Update UI
     this.updateExternalStreamUI(deviceId);

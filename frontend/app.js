@@ -318,6 +318,12 @@ class WebSocketManager {
       return;
     }
 
+    // 🔴 NEW: Check if we're in the same room as the sender
+    if (window.roomState?.inRoom && window.roomState?.roomId) {
+      frameLink.log("📥 Ignoring offer - we're in a room");
+      return;
+    }
+
     try {
       // 🔴 GLARE HANDLING: If we already have a call, handle glare situation
       if (frameLink.core.currentCall) {
@@ -663,6 +669,62 @@ class CallManager {
       frameLink.log("✅ Call ended successfully");
     } else {
       frameLink.log("ℹ️ No active call to end");
+    }
+  }
+
+  async startSingleDeviceCall() {
+    frameLink.log("🚀 Starting single device call (from room)...");
+
+    try {
+      // Close existing connection if any
+      if (frameLink.core.currentCall) {
+        frameLink.core.currentCall.close();
+        frameLink.core.currentCall = null;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      // Ensure media is ready
+      if (!frameLink.core.localStream) {
+        await this.mediaManager.initializeMedia();
+      }
+
+      // Create peer connection
+      this.currentCall = PeerConnectionFactory.create();
+      frameLink.core.currentCall = this.currentCall;
+
+      // 🔴 WICHTIG: Clone the stream for external call
+      const externalStream = frameLink.core.localStream.clone();
+
+      // Add cloned stream to call
+      externalStream.getTracks().forEach((track) => {
+        this.currentCall.addTrack(track, externalStream);
+      });
+
+      // Create and send offer
+      const offer = await this.currentCall.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+
+      await this.currentCall.setLocalDescription(offer);
+
+      // 🔴 WICHTIG: Markiere die Message NICHT mit roomId
+      this.webSocketManager.sendMessage({
+        type: "offer",
+        offer: offer,
+        // Kein roomId hier!
+      });
+
+      frameLink.events.dispatchEvent(
+        new CustomEvent("call-started", {
+          detail: { type: "outgoing", peerConnection: this.currentCall },
+        })
+      );
+
+      frameLink.log("📤 Single device call offer sent");
+    } catch (error) {
+      frameLink.log("❌ Error starting single device call:", error);
+      throw error;
     }
   }
 }

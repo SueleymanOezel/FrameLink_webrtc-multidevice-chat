@@ -187,11 +187,15 @@ wss.on("connection", (ws, req) => {
           if (msg.roomId && msg.toDeviceId && msg.fromDeviceId) {
             // Room WebRTC (specific device-to-device communication)
             broadcastToRoom(msg.roomId, msg, ws);
-            console.log(`📡 Room WebRTC ${msg.type}: ${msg.fromDeviceId} → ${msg.toDeviceId}`);
+            console.log(
+              `📡 Room WebRTC ${msg.type}: ${msg.fromDeviceId} → ${msg.toDeviceId}`
+            );
           } else {
-            // External WebRTC (global broadcast for external calls)
-            console.log(`📡 External WebRTC: ${msg.type} to ${wss.clients.size - 1} clients`);
-            broadcast(msg, ws);
+            // External WebRTC - broadcast to everyone EXCEPT room members
+            console.log(
+              `📡 External WebRTC: ${msg.type} from room ${ws.roomId || "none"}`
+            );
+            broadcastExcludingRoom(msg, ws);
           }
           break;
 
@@ -264,29 +268,31 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-// An alle in einem lokalen Room senden
-function broadcastToRoom(roomId, message, sender = null) {
-  if (!rooms.has(roomId)) {
-    console.warn(`Broadcast to non-existent room: ${roomId}`);
-    return;
-  }
-
+// An alle Clients AUSSER Room-Mitglieder senden
+function broadcastExcludingRoom(message, sender) {
   const msgString = JSON.stringify(message);
   let successCount = 0;
+  let errorCount = 0;
+  const senderRoomId = sender.roomId;
 
-  rooms.get(roomId).forEach((client) => {
-    if (client !== sender && client.readyState === WebSocket.OPEN) {
+  wss.clients.forEach((client) => {
+    if (
+      client !== sender &&
+      client.readyState === WebSocket.OPEN &&
+      (!senderRoomId || !client.roomId || client.roomId !== senderRoomId)
+    ) {
       try {
         client.send(msgString);
         successCount++;
       } catch (error) {
-        console.error("Broadcast error to room client:", error.message);
+        console.error("Broadcast error:", error.message);
+        errorCount++;
       }
     }
   });
 
   console.log(
-    `📡 Room ${roomId} broadcast: ${message.type} to ${successCount} clients`
+    `📡 External broadcast (excluding room ${senderRoomId}): ${message.type} - success: ${successCount}, errors: ${errorCount}`
   );
 }
 
