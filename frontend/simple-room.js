@@ -397,6 +397,23 @@ class RoomManager {
 
     frameLink.log("🚪 Joining multi-device room...");
 
+    // 🔴 EXTERNAL CALL PROTECTION
+    const hasExternalCall =
+      frameLink.core.currentCall &&
+      frameLink.core.currentCall.connectionState === "connected";
+
+    if (hasExternalCall) {
+      frameLink.log(
+        "📞 External call active - joining room without disturbing call"
+      );
+      roomState.callActiveWithExternal = true;
+
+      // Markiere als Camera Controller wenn external call aktiv
+      roomState.hasCamera = true;
+      roomState.amCurrentCameraMaster = true;
+      updateCameraStatus("📹 CAMERA ACTIVE (External Call)", "green");
+    }
+
     // Update button to show loading state
     this.updateJoinRoomButtonState();
 
@@ -879,6 +896,16 @@ class RoomMessageHandler {
     // Aktiviere Call-Tracks (wenn externes Call aktiv)
     this.enableExternalCallTracks();
 
+    // 🔴 NEUE LOGIK: Track Replacement bei Manual Switch
+    if (roomState.callActiveWithExternal) {
+      frameLink.log(
+        "📞 External call active - replacing tracks for manual switch"
+      );
+      setTimeout(() => {
+        this.replaceExternalCallTracks(roomState.deviceId);
+      }, 300);
+    }
+
     // Update UI
     updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
 
@@ -887,7 +914,7 @@ class RoomMessageHandler {
       new CustomEvent("camera-control-gained", {
         detail: {
           deviceId: roomState.deviceId,
-          reason: "switch-request",
+          reason: "manual-switch",
         },
       })
     );
@@ -1130,6 +1157,70 @@ class RoomMessageHandler {
   }
 }
 
+// 🔴 NEUE METHODE: Track Replacement für External Calls
+async function replaceExternalCallTracks(newControllerDeviceId) {
+  frameLink.log(
+    `🔄 Replacing external call tracks: switching to ${newControllerDeviceId}`
+  );
+
+  // Prüfe ob external call aktiv ist
+  const externalCall = frameLink.core.currentCall;
+  if (!externalCall || externalCall.connectionState !== "connected") {
+    frameLink.log("ℹ️ No active external call to replace tracks for");
+    return;
+  }
+
+  try {
+    // Hole Stream vom neuen Controller
+    let newStream = null;
+
+    if (newControllerDeviceId === roomState.deviceId) {
+      // Ich bin der neue Controller - verwende meinen Stream
+      newStream = frameLink.core.localStream;
+      frameLink.log("📹 Using my local stream for external call");
+    } else {
+      // Anderes Gerät ist Controller - hole Stream aus room connections
+      newStream = roomState.roomVideoStreams.get(newControllerDeviceId);
+      frameLink.log(
+        `📹 Using stream from room device: ${newControllerDeviceId}`
+      );
+    }
+
+    if (!newStream) {
+      frameLink.log(
+        `❌ No stream available from controller: ${newControllerDeviceId}`
+      );
+      return;
+    }
+
+    // Replace video track auf external call
+    const videoTrack = newStream.getVideoTracks()[0];
+    if (!videoTrack) {
+      frameLink.log("❌ No video track in controller stream");
+      return;
+    }
+
+    // Finde Video Sender in external call
+    const videoSender = externalCall
+      .getSenders()
+      .find((sender) => sender.track && sender.track.kind === "video");
+
+    if (videoSender) {
+      await videoSender.replaceTrack(videoTrack);
+      frameLink.log(
+        `✅ External call video track replaced with ${newControllerDeviceId} stream`
+      );
+
+      // Update UI
+      this.updateExternalCallUI(newControllerDeviceId);
+    } else {
+      frameLink.log("❌ No video sender found in external call");
+    }
+  } catch (error) {
+    frameLink.log(`❌ Track replacement failed:`, error);
+  }
+}
+
 // ================================================================
 // 🎥 ROOM VIDEO STREAMING MANAGER
 // ================================================================
@@ -1175,6 +1266,15 @@ class RoomVideoManager {
   startPeerDiscovery() {
     frameLink.log("🔍 Starting enhanced peer discovery process");
 
+    // 🔴 EXTERNAL CALL SCHUTZ
+    const hasExternalCall =
+      frameLink.core.currentCall &&
+      frameLink.core.currentCall.connectionState === "connected";
+
+    if (hasExternalCall) {
+      frameLink.log("📞 External call detected - careful peer discovery mode");
+    }
+
     // Request list of existing peers
     frameLink.api.sendMessage({
       type: "request-room-peers",
@@ -1182,26 +1282,39 @@ class RoomVideoManager {
       deviceId: roomState.deviceId,
     });
 
-    // 🔴 FIX: Periodic peer discovery to catch missed connections
-    this.peerDiscoveryInterval = setInterval(() => {
-      // Re-announce ourselves
-      this.announceRoomPeer();
+    // 🔴 SANFTERE PEER DISCOVERY
+    this.peerDiscoveryInterval = setInterval(
+      () => {
+        // Nur re-announce wenn keine kritische Operation läuft
+        if (
+          !hasExternalCall ||
+          Date.now() - (this.lastDiscovery || 0) > 10000
+        ) {
+          this.announceRoomPeer();
+          this.lastDiscovery = Date.now();
+        }
 
-      // Check for missing connections
-      const connectedCount = roomState.roomPeerConnections.size;
-      const expectedCount = roomState.roomDeviceCount - 1; // minus ourselves
+        // Check für missing connections - aber weniger aggressiv
+        const connectedCount = roomState.roomPeerConnections.size;
+        const expectedCount = roomState.roomDeviceCount - 1;
 
-      if (connectedCount < expectedCount) {
-        frameLink.log(
-          `⚠️ Missing connections: ${connectedCount}/${expectedCount} - requesting peer list`
-        );
-        frameLink.api.sendMessage({
-          type: "request-room-peers",
-          roomId: roomState.roomId,
-          deviceId: roomState.deviceId,
-        });
-      }
-    }, 5000); // Check every 5 seconds
+        if (
+          connectedCount < expectedCount &&
+          Date.now() - (this.lastPeerRequest || 0) > 8000
+        ) {
+          frameLink.log(
+            `⚠️ Missing connections: ${connectedCount}/${expectedCount}`
+          );
+          frameLink.api.sendMessage({
+            type: "request-room-peers",
+            roomId: roomState.roomId,
+            deviceId: roomState.deviceId,
+          });
+          this.lastPeerRequest = Date.now();
+        }
+      },
+      hasExternalCall ? 8000 : 5000
+    ); // Langsamere Discovery wenn External Call aktiv
 
     // Set timeout for initial peer discovery
     setTimeout(() => {
@@ -1242,9 +1355,30 @@ class RoomVideoManager {
       return;
     }
 
-    // Check if already connected
+    // 🔴 ERWEITERTE CONNECTION PRÜFUNG
     if (roomState.roomPeerConnections.has(remoteDeviceId)) {
-      frameLink.log(`✅ Already connected to: ${remoteDeviceId}`);
+      const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
+      if (
+        existingPc.connectionState === "connected" ||
+        existingPc.connectionState === "connecting"
+      ) {
+        frameLink.log(
+          `✅ Already connected to: ${remoteDeviceId} (${existingPc.connectionState})`
+        );
+        return;
+      } else {
+        frameLink.log(`🔄 Cleaning up failed connection to: ${remoteDeviceId}`);
+        existingPc.close();
+        roomState.roomPeerConnections.delete(remoteDeviceId);
+      }
+    }
+
+    // 🔴 RACE CONDITION PREVENTION
+    const shouldIOffer = roomState.deviceId < remoteDeviceId;
+    if (!shouldIOffer) {
+      frameLink.log(
+        `🤝 Waiting for offer from ${remoteDeviceId} (they have priority)`
+      );
       return;
     }
 
@@ -1449,7 +1583,7 @@ class RoomVideoManager {
       }
     };
 
-    // Connection state monitoring
+    // 🔴 ERWEITERTE CONNECTION STATE ÜBERWACHUNG
     peerConnection.onconnectionstatechange = () => {
       const state = peerConnection.connectionState;
       frameLink.log(`🔗 Room connection ${remoteDeviceId}: ${state}`);
@@ -1459,14 +1593,31 @@ class RoomVideoManager {
         frameLink.log(
           `🎉 Room video connection established with: ${remoteDeviceId}`
         );
+
+        // 🔴 NEUE LOGIK: Auto-Switch Status Update
+        if (
+          window.autoCameraSwitching &&
+          !autoCameraSwitching.currentControllingDevice
+        ) {
+          // Wenn noch kein Controller festgelegt, prüfe Face Detection
+          setTimeout(() => this.checkInitialCameraController(), 1000);
+        }
       } else if (state === "failed" || state === "disconnected") {
         frameLink.log(
           `💥 Room connection failed/disconnected: ${remoteDeviceId}`
         );
-        // Try to reconnect after a delay
-        setTimeout(() => {
-          this.attemptReconnect(remoteDeviceId);
-        }, 3000);
+
+        // 🔴 AGGRESSIVE CLEANUP
+        this.cleanupFailedConnection(remoteDeviceId);
+
+        // Try to reconnect nach delay - aber nur wenn nicht zu oft
+        const lastReconnect = this.lastReconnectAttempt?.[remoteDeviceId] || 0;
+        if (Date.now() - lastReconnect > 15000) {
+          // Max 1 reconnect pro 15 Sekunden
+          setTimeout(() => {
+            this.attemptReconnect(remoteDeviceId);
+          }, 3000);
+        }
       }
     };
 
@@ -1476,6 +1627,27 @@ class RoomVideoManager {
         `🧊 Room ICE state ${remoteDeviceId}: ${peerConnection.iceConnectionState}`
       );
     };
+  }
+
+  // 🔴 NEUE METHODE: Failed Connection Cleanup
+  cleanupFailedConnection(deviceId) {
+    frameLink.log(`🧹 Cleaning up failed connection: ${deviceId}`);
+
+    // Remove from all state maps
+    roomState.roomPeerConnections.delete(deviceId);
+    roomState.roomVideoStreams.delete(deviceId);
+    roomState.faceDetectionStates.delete(deviceId);
+
+    // Update UI
+    if (window.roomVideoManager) {
+      window.roomVideoManager.removeRoomDevice(deviceId);
+    }
+
+    // Update Auto-Switch wenn nötig
+    if (window.autoCameraSwitching?.currentControllingDevice === deviceId) {
+      frameLink.log(`🎯 Lost camera controller ${deviceId} - reassigning`);
+      this.reassignCameraController();
+    }
   }
 
   // NEW: Attempt to reconnect to failed peer
@@ -1526,6 +1698,44 @@ class RoomVideoManager {
         }
       }
     }, 500); // Increased delay for UI settling
+
+    // 🔴 NEUE LOGIK: External Call Video Routing
+    this.updateExternalCallVideoRouting();
+  }
+
+  // 🔴 NEUE METHODE: External Call Video Routing
+  updateExternalCallVideoRouting() {
+    // Bestimme welches Gerät gerade Camera Control hat
+    const activeController =
+      window.autoCameraSwitching?.currentControllingDevice ||
+      roomState.deviceId;
+
+    // Route Video für External Call
+    if (roomState.callActiveWithExternal) {
+      let sourceStream = null;
+
+      if (activeController === roomState.deviceId) {
+        // Ich bin Controller - verwende local stream
+        sourceStream = frameLink.core.localStream;
+      } else {
+        // Anderer Controller - verwende room stream
+        sourceStream = roomState.roomVideoStreams.get(activeController);
+      }
+
+      // Update External Video Display (rechte Seite)
+      const externalVideo = document.getElementById("remoteVideo");
+      if (externalVideo && sourceStream) {
+        // Zeige Preview vom aktiven Controller auf externem Video
+        const previewTrack = sourceStream.getVideoTracks()[0];
+        if (previewTrack) {
+          frameLink.log(
+            `📺 Routing ${activeController} video to external call preview`
+          );
+          // Hier könnten wir optional ein Preview zeigen, aber das wäre
+          // verwirrend da es nicht der echte externe Stream ist
+        }
+      }
+    }
   }
 
   updateRoomDeviceStatus(deviceId, status) {
@@ -1616,6 +1826,72 @@ class RoomVideoManager {
     });
     roomState.roomPeerConnections.clear();
     roomState.roomVideoStreams.clear();
+  }
+
+  // 🔴 NEUE METHODE: Check Initial Camera Controller
+  checkInitialCameraController() {
+    if (
+      window.autoCameraSwitching &&
+      !window.autoCameraSwitching.currentControllingDevice
+    ) {
+      // Prüfe ob ich Face Detection habe
+      const myFaceState = roomState.faceDetectionStates.get(roomState.deviceId);
+      if (myFaceState?.hasFace && myFaceState?.confidence > 0.7) {
+        frameLink.log(
+          "🎯 Setting myself as initial camera controller (face detected)"
+        );
+        window.autoCameraSwitching.currentControllingDevice =
+          roomState.deviceId;
+        this.activateCameraControl();
+      }
+    }
+  }
+
+  // 🔴 NEUE METHODE: Reassign Camera Controller
+  reassignCameraController() {
+    if (!window.autoCameraSwitching) return;
+
+    // Finde bestes alternatives Gerät mit Face Detection
+    let bestDevice = null;
+    let bestConfidence = 0;
+
+    roomState.faceDetectionStates.forEach((state, deviceId) => {
+      if (
+        state.hasFace &&
+        state.confidence > bestConfidence &&
+        roomState.roomPeerConnections.has(deviceId)
+      ) {
+        bestDevice = deviceId;
+        bestConfidence = state.confidence;
+      }
+    });
+
+    if (bestDevice) {
+      frameLink.log(`🎯 Reassigning camera controller to: ${bestDevice}`);
+      window.autoCameraSwitching.currentControllingDevice = bestDevice;
+
+      // Trigger camera switch
+      if (bestDevice === roomState.deviceId) {
+        this.activateCameraControl();
+      } else {
+        this.requestCameraControl(bestDevice);
+      }
+    } else {
+      frameLink.log("⚠️ No suitable camera controller found");
+      window.autoCameraSwitching.currentControllingDevice = null;
+    }
+  }
+
+  // 🔴 NEUE METHODE: Request Camera Control für anderen Device
+  requestCameraControl(targetDeviceId) {
+    frameLink.api.sendMessage({
+      type: "camera-request",
+      roomId: roomState.roomId,
+      deviceId: targetDeviceId,
+      fromDeviceId: roomState.deviceId,
+      automatic: true,
+      reason: "reassignment",
+    });
   }
 }
 
@@ -2301,6 +2577,60 @@ class EnhancedRoomSystem {
         roomState.roomPeerConnections.forEach((pc, deviceId) => {
           console.log(`  Device ${deviceId}: ${pc.connectionState}`);
         });
+      },
+      // 🔴 NEUE DEBUG FUNCTIONS
+      testTrackReplacement: (fromDevice, toDevice) => {
+        console.log(
+          `🧪 Testing track replacement: ${fromDevice} → ${toDevice}`
+        );
+        if (window.enhancedRoomSystem?.roomManager) {
+          window.enhancedRoomSystem.roomManager.replaceExternalCallTracks(
+            toDevice
+          );
+        }
+      },
+
+      checkExternalCallTracks: () => {
+        const call = frameLink.core.currentCall;
+        if (call) {
+          call.getSenders().forEach((sender, index) => {
+            console.log(`Track ${index}:`, {
+              kind: sender.track?.kind,
+              label: sender.track?.label,
+              enabled: sender.track?.enabled,
+              readyState: sender.track?.readyState,
+            });
+          });
+        } else {
+          console.log("No external call active");
+        }
+      },
+
+      simulateFaceSwitch: (deviceId) => {
+        console.log(`🧪 Simulating face switch to: ${deviceId}`);
+        if (window.autoCameraSwitching?._processFaceDetection) {
+          // Deaktiviere aktuelles Gerät
+          const current = window.autoCameraSwitching.currentControllingDevice;
+          if (current) {
+            window.autoCameraSwitching._processFaceDetection(current, false, 0);
+          }
+
+          // Aktiviere neues Gerät
+          setTimeout(() => {
+            window.autoCameraSwitching._processFaceDetection(
+              deviceId,
+              true,
+              0.9
+            );
+          }, 500);
+        }
+      },
+
+      forceVideoRouting: () => {
+        console.log("🔄 Force updating video routing");
+        if (window.enhancedRoomSystem?.roomVideoManager) {
+          window.enhancedRoomSystem.roomVideoManager.updateExternalCallVideoRouting();
+        }
       },
     };
   }

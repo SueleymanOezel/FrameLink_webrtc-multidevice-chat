@@ -1003,7 +1003,44 @@
           }
 
           if (infoElement) {
-            infoElement.textContent = status;
+            // 🔴 ERWEITERTE STATUS INFO
+            if (
+              window.roomState?.callActiveWithExternal &&
+              window.autoCameraSwitching?.currentControllingDevice
+            ) {
+              const controller =
+                window.autoCameraSwitching.currentControllingDevice;
+              const isMyDevice = controller === window.roomState?.deviceId;
+              infoElement.textContent = isMyDevice
+                ? `Streaming from your device`
+                : `Streaming from ${controller}`;
+            } else {
+              infoElement.textContent = status;
+            }
+          }
+
+          // 🔴 NEUE LOGIK: Room Grid Visual Indicators
+          this.updateActiveControllerVisuals();
+        },
+
+        // 🔴 NEUE METHODE: Visual Indicators für aktiven Controller
+        updateActiveControllerVisuals: function () {
+          const activeController =
+            window.autoCameraSwitching?.currentControllingDevice;
+
+          // Remove alle active indicators
+          document.querySelectorAll(".room-video-item").forEach((item) => {
+            item.classList.remove("active-camera");
+          });
+
+          // Add indicator für aktiven Controller
+          if (activeController) {
+            const activeVideoItem =
+              document.getElementById(`room-video-${activeController}`) ||
+              document.getElementById("local-room-video");
+            if (activeVideoItem) {
+              activeVideoItem.classList.add("active-camera");
+            }
           }
         },
       };

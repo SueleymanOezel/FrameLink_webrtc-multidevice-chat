@@ -311,17 +311,25 @@ class WebSocketManager {
   async handleOffer(message) {
     frameLink.log("📥 Handling offer");
 
-    // 🔴 CRITICAL: Check if this is a room offer or external offer
-    if (message.roomId) {
+    // 🔴 NEUE LOGIK: Unterscheide Room vs External Offers
+    if (message.roomId && message.toDeviceId && message.fromDeviceId) {
       frameLink.log("📥 Room offer detected - delegating to room system");
-      // Let room system handle this
+      // Room offers werden von simple-room.js behandelt, nicht hier
       return;
     }
 
-    // 🔴 NEW: Check if we're in the same room as the sender
+    // 🔴 NEUE PRÜFUNG: Bin ich in einem Room?
     if (window.roomState?.inRoom && window.roomState?.roomId) {
-      frameLink.log("📥 Ignoring offer - we're in a room");
-      return;
+      // Wenn ich in einem Room bin, prüfe ob ich der aktive Controller bin
+      if (!window.roomState?.hasCamera) {
+        frameLink.log(
+          "📥 External offer received but I'm not camera controller - ignoring"
+        );
+        return;
+      }
+      frameLink.log(
+        "📥 External offer received - I'm camera controller, proceeding"
+      );
     }
 
     try {
