@@ -1,75 +1,72 @@
-# FrameLink_webrtc-multidevice-chat
+# FrameLink WebRTC Multi-Device Chat
 
-## Projektbeschreibung
+## Project Description
 
-Diese Anwendung ermöglicht einen nahtlosen Videochat zwischen zwei Nutzern, auch wenn diese sich in unterschiedlichen Räumen mit verschiedenen Geräten aufhalten. Durch den Einsatz von lokaler Gesichtserkennung wird automatisch das jeweils aktive Gerät (z.B. Laptop, Tablet, Smart Display) ausgewählt, um Kamera und Mikrofon zu nutzen. Der Wechsel zwischen den Geräten erfolgt automatisch und unterbrechungsfrei.
+FrameLink is a WebRTC-based video chat application that enables seamless communication between multiple devices. It uses local face detection to automatically switch between devices (e.g., laptop, tablet, smart display) for camera and microphone usage. The switch between devices occurs automatically and without interruption.
 
-**Ziel:** Entwicklung einer WebRTC-basierten Videochat-Anwendung mit Multi-Geräte-Unterstützung und dynamischem Umschalten der aktiven Geräte basierend auf lokaler Gesichtserkennung.
+**Goal:** Development of a WebRTC-based video chat application with multi-device support and dynamic switching of active devices based on local face detection.
 
 ## Features
 
-* Peer-to-Peer-Videochat 
-* Multi-Geräte-Unterstützung
-* Automatisches Umschalten zwischen Geräten 
-* Echtzeit-Videoanzeige des aktiven Geräts 
-* Lokale Gesichtserkennung für Datenschutz 
-* Signaling über WebSocket 
+- Peer-to-Peer Video Chat
+- Multi-Device Support
+- Automatic Camera Switching based on Face Detection
+- Real-time Video Display of Active Device
+- Local Face Detection for Data Protection
+- WebSocket Signaling
 
 ## Setup
 
-### Voraussetzungen
+### Prerequisites
 
-* Node.js ≥14
-* Python 3.8+
-* yarn oder npm
-* virtuelle Umgebung (venv für Backend)
+- Node.js ≥ 16 (for Backend)
+- npm or yarn
+- Modern web browser with WebRTC support
 
 ### Installation
 
-\`\`\`bash
-git clone <repo-url>
-cd webrtc-multidevice-chat
+```bash
+git clone https://github.com/SueleymanOezel/FrameLink_webrtc-multidevice-chat.git
+cd FrameLink_webrtc-multidevice-chat
+
+# Backend
+cd Backend
+npm install
 
 # Frontend
-cd frontend && npm install
+cd ../frontend
+npm install
+```
 
+### Configuration
+
+- Configure WebSocket URL and STUN/TURN servers in `frontend/config/index.js`
+- Adjust Backend configuration in `Backend/fly.toml` if necessary
+
+### Running the Application
+
+```bash
 # Backend
-cd backend
-python3 -m venv venv # Erstelle eine virtuelle Umgebung (optional, aber empfohlen)
-source venv/bin/activate # Aktiviere die virtuelle Umgebung (Linux/macOS)
-# venv\\Scripts\\activate # Aktiviere die virtuelle Umgebung (Windows)
-pip install -r requirements.txt
-\`\`\`
+cd Backend
+npm start
 
-### Konfiguration
+# Frontend (in a new terminal)
+cd ../frontend
+npm start
+```
 
-* Umgebungsvariablen für Backend (z.B. WebSocket-URL, STUN/TURN-Server-Konfiguration)
-* Konfigurationsdateien für Frontend (falls notwendig)
+## Branch Policy
 
-### Starten der Anwendung
+- `main`: Stable release branch
+- `dev`: Integration branch for new features
+- Feature Branches: For developing individual features
+- Bugfix Branches: For fixing errors
 
-\`\`\`bash
-# Backend
-cd backend
-python backend\_server.py # oder der Name deines Server-Skripts
+All Pull Requests should be made against the `dev` branch.
 
-# Frontend (in einem neuen Terminal)
-cd frontend
-npm start # oder yarn start
-\`\`\`
+## Coding Standards
 
-## Branch-Policy
+- Frontend: ESLint, Prettier (configurations in `.eslintrc.js`, `.prettierrc.js`)
+- Backend: Standard Node.js coding conventions
 
-* `main`: Stabiler Release-Branch.
-* `dev`: Integrationsbranch für neue Features.
-* Feature Branches: Für die Entwicklung einzelner Features.
-* Bugfix Branches: Für die Behebung von Fehlern.
-
-Alle Pull Requests sollen gegen den `dev`-Branch gestellt werden.
-
-## Coding-Standards
-
-* Frontend: ESLint, Prettier (Konfigurationen siehe `.eslintrc.js`, `.prettierrc.js`)
-* Backend: Python Lint (z.B. Pylint, Black)
-
-Bitte stelle sicher, dass dein Code diesen Standards entspricht, bevor du Pull Requests erstellst.
+Please ensure your code adheres to these standards before creating Pull Requests.
