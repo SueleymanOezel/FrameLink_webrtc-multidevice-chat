@@ -867,45 +867,83 @@ class RoomMessageHandler {
     return false;
   }
 
+  // In deiner RoomMessageHandler–Klasse oder wo handleCameraSwitch definiert ist:
   async handleCameraSwitch(message) {
     const targetDeviceId = message.deviceId;
     const myDeviceId = roomState.deviceId;
 
     frameLink.log(
-      `📹 Camera switch: target=${targetDeviceId}, my=${myDeviceId}`
+      `📹 Camera switch: target=${targetDeviceId}, me=${myDeviceId}`
     );
 
     const iWasController =
       roomState.hasCamera && roomState.amCurrentCameraMaster;
 
     if (targetDeviceId === myDeviceId) {
-      // ✅ I get camera control
-      await this.activateCameraControl();
+      // ————————————————————————————————
+      // ✅ Ich übernehme nun die Kamera
+      roomState.hasCamera = true;
+      roomState.amCurrentCameraMaster = true;
 
+      // Stelle sicher, dass localStream aktiv & Video‑Tracks eingeschaltet sind
+      await this.ensureLocalStreamActive();
+      frameLink.core.localStream.getVideoTracks().forEach((track) => {
+        track.enabled = true;
+        frameLink.log(`📹 Enabled local track: ${track.label}`);
+      });
+
+      // Wenn gerade ein externer Call läuft, ersetze das Video‑Track
+      if (roomState.callActiveWithExternal && frameLink.core.currentCall) {
+        await this.replaceExternalCallTracks();
+      }
+
+      // Falls externer Call aktiv ist, aber noch keine PeerConnection besteht
       if (roomState.callActiveWithExternal && !frameLink.core.currentCall) {
-        frameLink.log("📞 Call state missing - starting takeover");
+        frameLink.log("📞 Call state missing – starte takeover");
         this.initiateCallTakeover();
       }
     } else {
-      // ❌ Another device gets camera control
-      this.deactivateCameraControl(targetDeviceId);
-      if (iWasController && frameLink.core.currentCall) {
-        frameLink.core.currentCall.getSenders().forEach((sender) => {
+      // ————————————————————————————————
+      // ❌ Ein anderes Gerät übernimmt die Kamera
+      roomState.hasCamera = false;
+      roomState.amCurrentCameraMaster = false;
+
+      // Nur das Video im externen Call deaktivieren, Room‑Streams bleiben erhalten
+      const pc = frameLink.core.currentCall;
+      if (iWasController && pc) {
+        pc.getSenders().forEach((sender) => {
           if (sender.track && sender.track.kind === "video") {
-            try {
-              sender.track.stop();
-              frameLink.log(
-                `🛑 Stopped previous call track: ${sender.track.label}`
-              );
-            } catch (err) {
-              frameLink.log("⚠️ Failed to stop track", err);
-            }
+            sender.track.enabled = false;
+            frameLink.log(
+              `⏸️ Disabled previous external track: ${sender.track.label}`
+            );
           }
         });
       }
     }
 
+    // UI und interner Status updaten
     this.updateExternalCallController(targetDeviceId);
+  }
+
+  async replaceExternalCallTracks() {
+    const pc = frameLink.core.currentCall;
+    const stream = frameLink.core.localStream;
+    if (!pc || !stream) return;
+
+    // Klone den neuen Video-Track
+    const [videoTrack] = stream.getVideoTracks();
+    const clone = videoTrack.clone();
+    clone.enabled = true;
+
+    // Finde den Video‑Sender und ersetze Track
+    const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (sender) {
+      await sender.replaceTrack(clone);
+      frameLink.log(`🔄 External call track replaced: ${clone.label}`);
+    } else {
+      frameLink.log("⚠️ Kein Video‑Sender zum Ersetzen gefunden");
+    }
   }
 
   async activateCameraControl() {
@@ -945,6 +983,11 @@ class RoomMessageHandler {
       setTimeout(() => {
         this.replaceExternalCallTracks(roomState.deviceId);
       }, 300);
+
+      // Nach 500 ms nochmal prüfen und ggf. Track ersetzen
+      setTimeout(async () => {
+        await this.replaceExternalCallTracks(roomState.deviceId);
+      }, 500);
     }
 
     // Update UI
@@ -1863,6 +1906,14 @@ class RoomVideoManager {
         return;
       }
 
+      if (peerConnection.signalingState !== "stable") {
+        frameLink.log(
+          `⚠️ Room peer in wrong state: ${peerConnection.signalingState}`
+        );
+        return;
+      }
+      await peerConnection.setRemoteDescription(message.offer);
+
       // Add local stream
       const coreState = frameLink.api.getState();
       if (coreState.localStream) {
@@ -1910,6 +1961,13 @@ class RoomVideoManager {
             `⚠️ Room peer connection in wrong state for answer: ${peerConnection.signalingState} - ignoring answer`
           );
         }
+        if (peerConnection.signalingState !== "have-local-offer") {
+          frameLink.log(
+            `⚠️ Cannot set answer in state: ${peerConnection.signalingState}`
+          );
+          return;
+        }
+        await peerConnection.setRemoteDescription(message.answer);
       } catch (error) {
         frameLink.log(
           `❌ Failed to process answer from ${fromDeviceId}:`,

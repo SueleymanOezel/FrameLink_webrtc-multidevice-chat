@@ -397,8 +397,16 @@ class WebSocketManager {
   async handleAnswer(message) {
     frameLink.log("📥 Handling answer");
 
-    if (frameLink.core.currentCall) {
-      await frameLink.core.currentCall.setRemoteDescription(message.answer);
+    const pc = frameLink.core.currentCall;
+    if (pc) {
+      if (pc.signalingState === "have-local-offer") {
+        await pc.setRemoteDescription(message.answer);
+        frameLink.log("✅ Remote answer verarbeitet");
+      } else {
+        frameLink.log(
+          `⚠️ Ignoring remote answer in wrong state: ${pc.signalingState}`
+        );
+      }
     }
   }
 
