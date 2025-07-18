@@ -38,15 +38,10 @@
   // ========================================
   // FACE DETECTION DECISION ENGINE
   // ========================================
-  const detectionTimers = new Map();
-
   function processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence) {
     if (!autoCameraSwitching.enabled) return;
-
-    // Manual override check
     if (Date.now() < autoCameraSwitching.manualOverrideUntil) return;
 
-    // Load or init state
     let state = autoCameraSwitching.faceStates.get(deviceId) || {
       hasFace: false,
       confidence: 0,
@@ -70,22 +65,20 @@
       state.isStable = false;
     }
 
-    // Update
-    state.hasFace = hasFace;
+    // Update and store
     state.previousConfidence = state.confidence;
     state.confidence = confidence;
+    state.hasFace = hasFace;
     autoCameraSwitching.faceStates.set(deviceId, state);
 
-    // When stable, decide switch
+    // Decide switch if stable
     if (state.isStable) {
-      // compute score
       const delta = state.confidence - state.previousConfidence;
       const bonus =
         state.confidence > 0.8 ? AUTO_SWITCH_CONFIG.confidenceBonus : 0;
-      const score = delta + bonus;
-      // find best
-      let bestId = deviceId,
-        bestScore = score;
+      let bestId = deviceId;
+      let bestScore = delta + bonus;
+
       autoCameraSwitching.faceStates.forEach((o, id) => {
         if (id === deviceId || !o.isStable) return;
         const d = o.confidence - o.previousConfidence;
@@ -96,7 +89,7 @@
           bestScore = s;
         }
       });
-      // perform switch if needed
+
       if (
         bestId !== autoCameraSwitching.currentControllingDevice &&
         bestScore > 0.1
@@ -104,11 +97,12 @@
         autoCameraSwitching.currentControllingDevice = bestId;
         requestAutomaticCameraSwitch(bestId, state.confidence, bestScore);
       }
-    } else if (
+    }
+    // If face lost on current controller, switch away
+    else if (
       !hasFace &&
       autoCameraSwitching.currentControllingDevice === deviceId
     ) {
-      // face lost: try switch away
       const alts = findBestAlternativeDevice();
       if (alts.length) {
         autoCameraSwitching.currentControllingDevice = alts[0].deviceId;
@@ -129,8 +123,11 @@
       const delta = st.confidence - st.previousConfidence;
       const bonus =
         st.confidence > 0.8 ? AUTO_SWITCH_CONFIG.confidenceBonus : 0;
-      const score = delta + bonus;
-      arr.push({ deviceId: id, confidence: st.confidence, score });
+      arr.push({
+        deviceId: id,
+        confidence: st.confidence,
+        score: delta + bonus,
+      });
     });
     return arr.sort((a, b) => b.score - a.score);
   }
@@ -140,17 +137,18 @@
   // ========================================
   function requestAutomaticCameraSwitch(deviceId, confidence, score) {
     logDebug(
-      `[Auto-Switch] Switching to ${deviceId} (score=${score.toFixed(2)})`
+      `[Auto-Switch] ⇒ Wechsel zu ${deviceId} (score=${score.toFixed(2)})`
     );
     autoCameraSwitching.lastSwitchTime = Date.now();
     autoCameraSwitching.switchHistory.push(Date.now());
     autoCameraSwitching.switchCount++;
-    // use integrated switch
+
     executeIntegratedCameraSwitch(deviceId, {
       reason: "face-detection-auto-switch",
       confidence,
       score,
     });
+
     if (AUTO_SWITCH_CONFIG.enableVisualFeedback) {
       showCameraSwitchFeedback(deviceId, confidence);
     }
@@ -162,10 +160,9 @@
   // ========================================
   function executeIntegratedCameraSwitch(deviceId, metadata = {}) {
     try {
-      const roomId =
-        window.roomState?.roomId || window.multiDeviceRoom?.roomId || null;
+      const roomId = window.roomState?.roomId || window.multiDeviceRoom?.roomId;
       const fromDeviceId =
-        window.roomState?.deviceId || window.multiDeviceRoom?.deviceId || null;
+        window.roomState?.deviceId || window.multiDeviceRoom?.deviceId;
       if (!roomId || !fromDeviceId) return;
 
       const msg = {
@@ -173,30 +170,27 @@
         roomId,
         deviceId,
         fromDeviceId,
-        metadata: {
-          ...metadata,
-          automatic: true,
-          timestamp: Date.now(),
-        },
+        metadata: { ...metadata, automatic: true, timestamp: Date.now() },
       };
 
       if (window.frameLink?.api?.sendMessage) {
         window.frameLink.api.sendMessage("camera-request", msg);
-        logDebug("📤 frameLink camera-request:", msg);
+        logDebug("📤 frameLink send:", msg);
       } else if (window.socket?.readyState === WebSocket.OPEN) {
         window.socket.send(JSON.stringify(msg));
-        logDebug("📤 WS camera-request fallback:", msg);
+        logDebug("📤 WS fallback send:", msg);
       } else {
-        logDebug("❌ No sendMessage or socket available");
+        logDebug("❌ Keine sendMessage‑Methode verfügbar");
       }
     } catch (err) {
-      logDebug("❌ executeIntegratedCameraSwitch error:", err);
+      logDebug("❌ executeIntegratedCameraSwitch Fehler:", err);
     }
   }
 
   function enhanceWebSocketIntegration() {
     if (!window.socket) {
-      return setTimeout(enhanceWebSocketIntegration, 500);
+      setTimeout(enhanceWebSocketIntegration, 500);
+      return;
     }
     const orig = window.socket.onmessage;
     window.socket.onmessage = async (e) => {
@@ -215,6 +209,7 @@
         }
       } catch {}
     };
+    logDebug("✅ WebSocket face-detection‑update integriert");
   }
 
   // ========================================
@@ -222,12 +217,8 @@
   // ========================================
   function showCameraSwitchFeedback(deviceId, confidence) {
     const fb = document.createElement("div");
-    fb.style.cssText = `
-      position: fixed; top: 20px; right: 20px;
-      background: rgba(0,0,0,0.7); color: #fff;
-      padding: 8px 12px; border-radius: 6px;
-      font-size: 14px; z-index: 10000;
-    `;
+    fb.style.cssText =
+      "position:fixed;top:20px;right:20px;background:rgba(0,0,0,0.7);color:#fff;padding:8px 12px;border-radius:6px;font-size:14px;z-index:10000";
     fb.textContent = `🎥 Auto‑Switch → ${deviceId} (${(confidence * 100).toFixed(0)}%)`;
     document.body.appendChild(fb);
     setTimeout(() => fb.remove(), 3000);
@@ -244,30 +235,76 @@
       },
     });
     window.dispatchEvent(ev);
-    logDebug("📢 Dispatched camera-auto-switch:", ev.detail);
+    logDebug("📢 Dispatched:", ev.detail);
   }
 
   // ========================================
   // INITIALIZATION SEQUENCE
   // ========================================
   function initializeCompleteIntegrationFix() {
-    window.faceDetectionStates = new Map();
+    logDebug("🔧 COMPLETE INTEGRATION FIX initialisieren…");
     enhanceWebSocketIntegration();
-    logDebug("✅ COMPLETE INTEGRATION FIX initialized");
   }
 
   function waitForWebSocket(cb, tries = 0) {
-    if (window.socket?.readyState === WebSocket.OPEN) {
-      cb();
-    } else if (tries < 10) {
-      setTimeout(() => waitForWebSocket(cb, tries + 1), 500);
-    } else {
-      cb();
+    if (window.socket?.readyState === WebSocket.OPEN) cb();
+    else if (tries < 10) setTimeout(() => waitForWebSocket(cb, tries + 1), 500);
+    else cb();
+  }
+
+  // ─── DEVICE ID & CONFIDENCE FIXES ────────────────────────────
+  function fixDeviceIdMapping() {
+    if (!window.canvasDeviceMap) window.canvasDeviceMap = new WeakMap();
+    const orig = window.createDetectionCanvas;
+    window.createDetectionCanvas = function (id) {
+      const c =
+        (orig && orig.call(this, id)) || document.createElement("canvas");
+      c.dataset.deviceId = id;
+      window.canvasDeviceMap.set(c, id);
+      return c;
+    };
+    const onRes = window.faceDetectionSystem?.onResults;
+    if (onRes) {
+      window.faceDetectionSystem.onResults = function (res) {
+        if (res.image) {
+          res._deviceId =
+            window.canvasDeviceMap.get(res.image) || res.image.dataset.deviceId;
+        }
+        return onRes.call(this, res);
+      };
     }
   }
 
+  function fixConfidenceScore() {
+    const proc = window.processFaceDetectionResults;
+    if (typeof proc === "function") {
+      window.processFaceDetectionResults = function (deviceId, results) {
+        let conf = 0.8;
+        try {
+          const d = results.detections?.[0];
+          if (d) conf = d.confidence ?? d.score?.[0] ?? conf;
+        } catch {}
+        return proc.call(this, deviceId, {
+          ...results,
+          _fixedConfidence: conf,
+        });
+      };
+    }
+  }
+
+  // ─── FALLBACK DEBUG & HELPERS ─────────────────────────────────
+  function logDebug(...args) {
+    if (window.frameLink?.log) frameLink.log("[AutoSwitch]", ...args);
+    else console.log("[AutoSwitch]", ...args);
+  }
+
+  // ─── BOOTSTRAP ────────────────────────────────────────────────
   window.addEventListener("load", () => {
-    // Hook into face detection events
+    // apply canvas & confidence fixes
+    fixDeviceIdMapping();
+    fixConfidenceScore();
+
+    // hook face‑detection events
     window.addEventListener("face-detection-update", (e) => {
       const { deviceId, hasFace, confidence } = e.detail;
       processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
@@ -279,61 +316,11 @@
       });
     }
 
-    // Start integration fix after WS is ready
+    // start WS integration & config
     waitForWebSocket(initializeCompleteIntegrationFix);
-
-    // Configure visual/manual settings
     setTimeout(() => {
       autoCameraSwitching.enabled = true;
-      logDebug("⚙️ Auto‑Switch enabled with config:", AUTO_SWITCH_CONFIG);
+      logDebug("⚙️ Auto‑Switch aktiv mit config:", AUTO_SWITCH_CONFIG);
     }, 1000);
   });
 })();
-
-// ─── FALLBACK DEBUG & HELPERS ─────────────────────────────────
-function logDebug(...args) {
-  if (window.frameLink?.log) frameLink.log("[AutoSwitch]", ...args);
-  else console.log("[AutoSwitch]", ...args);
-}
-
-// ─── DEVICE ID & CONFIDENCE FIXES ────────────────────────────
-function fixDeviceIdMapping() {
-  if (!window.canvasDeviceMap) window.canvasDeviceMap = new WeakMap();
-  const orig = window.createDetectionCanvas;
-  window.createDetectionCanvas = function (id) {
-    const c = (orig && orig.call(this, id)) || document.createElement("canvas");
-    c.dataset.deviceId = id;
-    window.canvasDeviceMap.set(c, id);
-    return c;
-  };
-  const onRes = window.faceDetectionSystem?.onResults;
-  if (onRes) {
-    window.faceDetectionSystem.onResults = function (res) {
-      if (res.image) {
-        res._deviceId =
-          window.canvasDeviceMap.get(res.image) || res.image.dataset.deviceId;
-      }
-      return onRes.call(this, res);
-    };
-  }
-}
-
-function fixConfidenceScore() {
-  const proc = window.processFaceDetectionResults;
-  if (typeof proc === "function") {
-    window.processFaceDetectionResults = function (deviceId, results) {
-      let conf = 0.8;
-      try {
-        const d = results.detections?.[0];
-        if (d) conf = d.confidence ?? d.score?.[0] ?? conf;
-      } catch {}
-      return proc.call(this, deviceId, { ...results, _fixedConfidence: conf });
-    };
-  }
-}
-
-// fixes aktivieren
-window.addEventListener("load", () => {
-  fixDeviceIdMapping();
-  fixConfidenceScore();
-});
