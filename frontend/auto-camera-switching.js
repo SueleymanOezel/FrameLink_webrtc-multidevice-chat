@@ -1296,3 +1296,55 @@
     setTimeout(enhancedDelayedInitialization, 1000);
   }
 })();
+
+// Fallback-Logger für Debug-Ausgaben
+function logDebug(...args) {
+  if (window.frameLink && typeof frameLink.log === "function") {
+    frameLink.log("[AutoSwitch]", ...args);
+  } else {
+    console.log("[AutoSwitch]", ...args);
+  }
+}
+
+// Debounce-Handler für Face-Detection-Events
+let debounceTimer = null;
+let lastDeviceId = null;
+
+async function processFaceDetectionForAutoSwitch(
+  deviceId,
+  hasFace,
+  confidence
+) {
+  logDebug(`🎭 FrameLink Face Event: ${deviceId} = ${hasFace} (${confidence})`);
+
+  if (!hasFace || confidence < 0.6) return;
+
+  // Nur bei Gerätewechsel oder neuem Face-Event triggern
+  if (lastDeviceId !== deviceId) {
+    lastDeviceId = deviceId;
+    if (debounceTimer) clearTimeout(debounceTimer);
+
+    debounceTimer = setTimeout(async () => {
+      try {
+        logDebug(`🔄 Switching to device: ${deviceId}`);
+        if (typeof switchToDevice === "function") {
+          await switchToDevice(deviceId);
+          logDebug(`✅ Switched to device: ${deviceId}`);
+        } else {
+          logDebug("❌ switchToDevice is not defined");
+        }
+      } catch (err) {
+        logDebug("❌ Error in switchToDevice:", err);
+      }
+    }, 500); // 500ms Stabilitätszeit
+  }
+}
+
+// Event-Bridge für verschiedene Quellen
+window.addEventListener("face-detection-for-auto-switch", (event) => {
+  const { deviceId, hasFace, confidence } = event.detail;
+  processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence);
+});
+
+// Optional: Legacy-Kompatibilität
+window.processFaceDetectionForAutoSwitch = processFaceDetectionForAutoSwitch;
