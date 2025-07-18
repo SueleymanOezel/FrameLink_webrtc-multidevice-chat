@@ -867,7 +867,7 @@ class RoomMessageHandler {
     return false;
   }
 
-  handleCameraSwitch(message) {
+  async handleCameraSwitch(message) {
     const targetDeviceId = message.deviceId;
     const myDeviceId = roomState.deviceId;
 
@@ -880,7 +880,7 @@ class RoomMessageHandler {
 
     if (targetDeviceId === myDeviceId) {
       // ✅ I get camera control
-      this.activateCameraControl();
+      await this.activateCameraControl();
 
       if (roomState.callActiveWithExternal && !frameLink.core.currentCall) {
         frameLink.log("📞 Call state missing - starting takeover");
@@ -908,7 +908,7 @@ class RoomMessageHandler {
     this.updateExternalCallController(targetDeviceId);
   }
 
-  activateCameraControl() {
+  async activateCameraControl() {
     frameLink.log("✅ Activating camera control for this device");
 
     roomState.hasCamera = true;
@@ -924,6 +924,14 @@ class RoomMessageHandler {
 
     // Aktiviere Call-Tracks (wenn externes Call aktiv)
     this.enableExternalCallTracks();
+
+    // 🔴 NEU: Externen Call‑Track ersetzen
+    if (roomState.callActiveWithExternal) {
+      await this.ensureLocalStreamActive(); // :contentReference[oaicite:0]{index=0}
+      setTimeout(() => {
+        this.replaceExternalCallTracks(roomState.deviceId); // Methode siehe Schritt 2
+      }, 300);
+    }
 
     // 🔴 NEUE LOGIK: Track Replacement bei Manual Switch
     if (roomState.callActiveWithExternal) {
@@ -989,6 +997,37 @@ class RoomMessageHandler {
       frameLink.log("✅ Local stream verified and active");
     } catch (error) {
       frameLink.log("❌ Error ensuring local stream:", error);
+    }
+  }
+
+  async replaceExternalCallTracks(newControllerDeviceId) {
+    frameLink.log(
+      `🔄 Replacing external call track with stream from ${newControllerDeviceId}`
+    );
+
+    try {
+      const coreState = frameLink.api.getState();
+      const externalCall = coreState.currentCall;
+      const localStream = coreState.localStream;
+      if (!externalCall || !localStream) return;
+
+      // Track klonen, um Konflikte zu vermeiden
+      const [videoTrack] = localStream.getVideoTracks();
+      const clonedTrack = videoTrack.clone();
+      clonedTrack.enabled = true;
+
+      // Sender suchen und Track ersetzen
+      const videoSender = externalCall
+        .getSenders()
+        .find((s) => s.track && s.track.kind === "video");
+      if (videoSender) {
+        await videoSender.replaceTrack(clonedTrack);
+        frameLink.log(`✅ Replaced video track: ${clonedTrack.label}`);
+      } else {
+        frameLink.log("❌ No video sender found");
+      }
+    } catch (err) {
+      frameLink.log("❌ Track replacement failed:", err);
     }
   }
 
