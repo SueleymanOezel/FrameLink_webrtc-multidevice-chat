@@ -886,7 +886,6 @@ class RoomMessageHandler {
     this.updateExternalCallController(targetDeviceId);
   }
 
-  // 🔴 NEUE KAMERA-KONTROLLE METHODEN
   activateCameraControl() {
     frameLink.log("✅ Activating camera control for this device");
 
@@ -920,6 +919,96 @@ class RoomMessageHandler {
     );
 
     frameLink.log("🎯 Camera control activated successfully");
+  }
+
+  // 🔴 NEUE METHODE: Track Replacement für External Calls
+  async replaceExternalCallTracks(newControllerDeviceId) {
+    frameLink.log(
+      `🔄 Replacing external call tracks: switching to ${newControllerDeviceId}`
+    );
+
+    // Prüfe ob external call aktiv ist
+    const externalCall = frameLink.core.currentCall;
+    if (!externalCall || externalCall.connectionState !== "connected") {
+      frameLink.log("ℹ️ No active external call to replace tracks for");
+      return;
+    }
+
+    try {
+      // Hole Stream vom neuen Controller
+      let newStream = null;
+
+      if (newControllerDeviceId === roomState.deviceId) {
+        // Ich bin der neue Controller - verwende meinen Stream
+        newStream = frameLink.core.localStream;
+        frameLink.log("📹 Using my local stream for external call");
+      } else {
+        // Anderes Gerät ist Controller - hole Stream aus room connections
+        newStream = roomState.roomVideoStreams.get(newControllerDeviceId);
+        frameLink.log(
+          `📹 Using stream from room device: ${newControllerDeviceId}`
+        );
+      }
+
+      if (!newStream) {
+        frameLink.log(
+          `❌ No stream available from controller: ${newControllerDeviceId}`
+        );
+        return;
+      }
+
+      // Replace video track auf external call
+      const videoTrack = newStream.getVideoTracks()[0];
+      if (!videoTrack) {
+        frameLink.log("❌ No video track in controller stream");
+        return;
+      }
+
+      // Finde Video Sender in external call
+      const videoSender = externalCall
+        .getSenders()
+        .find((sender) => sender.track && sender.track.kind === "video");
+
+      if (videoSender) {
+        await videoSender.replaceTrack(videoTrack);
+        frameLink.log(
+          `✅ External call video track replaced with ${newControllerDeviceId} stream`
+        );
+
+        // Update UI
+        this.updateExternalCallUI(newControllerDeviceId);
+      } else {
+        frameLink.log("❌ No video sender found in external call");
+      }
+    } catch (error) {
+      frameLink.log(`❌ Track replacement failed:`, error);
+    }
+  }
+
+  // 🔴 NEUE METHODE: Update External Call UI nach Track Replacement
+  updateExternalCallUI(newControllerDeviceId) {
+    // Update room status panel
+    if (window.roomVideoManager) {
+      window.roomVideoManager.updateRoomStatus(
+        newControllerDeviceId,
+        roomState.isMediaPipeInitialized,
+        window.autoCameraSwitching?.isEnabled() || false
+      );
+    }
+
+    // Update external call status
+    const isMyControl = newControllerDeviceId === roomState.deviceId;
+    const statusText = isMyControl
+      ? "You control external call"
+      : `${newControllerDeviceId} controls external call`;
+
+    if (window.roomVideoManager) {
+      window.roomVideoManager.updateExternalCallStatus(statusText, isMyControl);
+    }
+
+    frameLink.log(
+      `🎮 External call UI updated for controller: ${newControllerDeviceId}`
+    );
   }
 
   deactivateCameraControl(controllingDeviceId) {
