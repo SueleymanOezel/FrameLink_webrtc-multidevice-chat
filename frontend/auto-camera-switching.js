@@ -123,93 +123,131 @@
    * @param {number} confidence
    */
   function updateEnhancedFaceState(deviceId, hasFace, confidence) {
-    const currentTime = Date.now();
-    // Hole oder initialisiere State
+    const now = Date.now();
     let state = autoCameraSwitching.faceStates.get(deviceId);
     if (!state) {
       state = {
         hasFace: false,
         previousConfidence: 0,
-        lastUpdate: currentTime,
         stableDetectionStart: null,
         consecutiveDetections: 0,
-        averageConfidence: 0,
         isStable: false,
+        lastUpdate: now,
       };
     }
-
-    // Speichere alten Wert für Vergleiche
-    const previousHasFace = state.hasFace;
-    const previousConfidence = state.previousConfidence;
-
-    // Update Basisdaten
-    state.hasFace = hasFace;
-    state.lastUpdate = currentTime;
-
-    // Face-Detection-Logik
+    const prevHasFace = state.hasFace;
+    const prevConf = state.previousConfidence;
+    // --- stability sliding-window logic ---
     if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
-      if (!previousHasFace) {
-        state.stableDetectionStart = currentTime;
+      if (!state.stableDetectionStart) {
+        state.stableDetectionStart = now;
         state.consecutiveDetections = 1;
-        state.averageConfidence = confidence;
       } else {
         state.consecutiveDetections++;
-        state.averageConfidence = (state.averageConfidence + confidence) / 2;
       }
-      const detectionDuration = currentTime - state.stableDetectionStart;
-      state.isStable = detectionDuration >= AUTO_SWITCH_CONFIG.stabilityPeriod;
+      // Only "isStable" after 800ms continuous detection
+      if (
+        now - state.stableDetectionStart >=
+        AUTO_SWITCH_CONFIG.stabilityPeriod
+      ) {
+        if (!state.isStable) {
+          logDebug(`[FaceState] ${deviceId} reached stability after 800ms`);
+        }
+        state.isStable = true;
+      } else {
+        state.isStable = false;
+      }
     } else {
       state.stableDetectionStart = null;
       state.consecutiveDetections = 0;
       state.isStable = false;
     }
 
-    // Log nur bei echtem Wechsel
+    state.hasFace = hasFace;
+    state.previousConfidence = confidence;
+    state.lastUpdate = now;
+    autoCameraSwitching.faceStates.set(deviceId, state);
+
+    // Log face state changes
     if (
-      state.hasFace !== previousHasFace ||
-      Math.abs(confidence - previousConfidence) > 0.2
+      prevHasFace !== hasFace ||
+      state.isStable !== !!prevHasFace ||
+      Math.abs(prevConf - confidence) > 0.08
     ) {
       logDebug(
-        `📊 Face State CHANGE - ${deviceId}: ${hasFace ? "DETECTED" : "LOST"}` +
-          ` (Δconf=${(confidence - previousConfidence).toFixed(2)})`
+        `[FaceState] ${deviceId} hasFace=${hasFace} stable=${state.isStable} conf=${confidence.toFixed(2)}`
       );
     }
-
-    // Update confidence für nächstes Mal
-    state.previousConfidence = confidence;
-    autoCameraSwitching.faceStates.set(deviceId, state);
   }
 
   function evaluateSwitchToDevice(deviceId, confidence) {
-    const currentTime = Date.now();
     const state = autoCameraSwitching.faceStates.get(deviceId);
-
     if (!state || !state.isStable) {
-      logDebug(`⏳ Warte auf stabile Detection für ${deviceId}`);
+      logDebug(`[Auto-Switch] ${deviceId} not stable, skipping switch.`);
       return;
     }
+
+    // Compute switch score: confidence delta, bonus, etc.
+    const prevConf =
+      typeof state.previousConfidence === "number"
+        ? state.previousConfidence
+        : 0;
+    const score =
+      confidence -
+      prevConf +
+      (confidence > 0.8 ? AUTO_SWITCH_CONFIG.confidenceBonus : 0);
+
+    logDebug(`[Auto-Switch] Switch Score for ${deviceId}: ${score.toFixed(3)}`);
+
+    // If this device is already in control, log and skip
     if (autoCameraSwitching.currentControllingDevice === deviceId) {
-      logDebug(`✅ ${deviceId} hat bereits Kamera-Kontrolle`);
-      return;
-    }
-    if (isInHysteresisWindow()) {
-      logDebug(`🚫 Hysterese aktiv - warte bis Switch möglich`);
-      return;
-    }
-    if (isRateLimited()) {
-      logDebug(`🚫 Rate limit erreicht - zu viele Switches`);
+      console.log(
+        `[Auto-Switch] Device ${deviceId} already has camera control`
+      );
+      logDebug(`[Auto-Switch] Device ${deviceId} already has camera control`);
       return;
     }
 
-    const switchScore = calculateSwitchScore(deviceId, confidence);
-    const currentScore = getCurrentDeviceScore();
+    // If no device is controlling or this device's score is highest, take over
+    const current = autoCameraSwitching.currentControllingDevice;
+    let shouldSwitch = false;
 
-    logDebug(
-      `🧮 Switch Score für ${deviceId}: ${switchScore.toFixed(2)} vs Current: ${currentScore.toFixed(2)}`
-    );
+    if (!current) {
+      shouldSwitch = true;
+    } else {
+      // Compare scores among all stable devices
+      let bestId = deviceId;
+      let bestScore = score;
+      autoCameraSwitching.faceStates.forEach((other, id) => {
+        if (
+          id !== deviceId &&
+          other.isStable &&
+          other.hasFace &&
+          typeof other.previousConfidence === "number"
+        ) {
+          const otherScore =
+            other.confidence -
+            (other.previousConfidence || 0) +
+            (other.confidence > 0.8 ? AUTO_SWITCH_CONFIG.confidenceBonus : 0);
+          logDebug(
+            `[Auto-Switch] Switch Score for ${id}: ${otherScore.toFixed(3)}`
+          );
+          if (otherScore > bestScore) {
+            bestId = id;
+            bestScore = otherScore;
+          }
+        }
+      });
+      if (bestId === deviceId && bestScore > 0.1) shouldSwitch = true;
+    }
 
-    if (switchScore > currentScore + 0.1) {
-      requestAutomaticCameraSwitch(deviceId, confidence, switchScore);
+    if (shouldSwitch) {
+      autoCameraSwitching.currentControllingDevice = deviceId;
+      console.log(`[Auto-Switch] Device ${deviceId} has taken camera control`);
+      logDebug(
+        `[Auto-Switch] Device ${deviceId} has taken camera control (score=${score.toFixed(3)})`
+      );
+      requestAutomaticCameraSwitch(deviceId, confidence, score);
     }
   }
 
@@ -302,21 +340,21 @@
   // ========================================
 
   function requestAutomaticCameraSwitch(deviceId, confidence, score) {
-    const currentTime = Date.now();
-    logDebug(`🚀 Führe automatischen Switch aus:`, {
-      from: autoCameraSwitching.currentControllingDevice || "none",
-      to: deviceId,
-      confidence: confidence.toFixed(2),
-      score: score.toFixed(2),
-    });
-    autoCameraSwitching.lastSwitchTime = currentTime;
-    autoCameraSwitching.currentControllingDevice = deviceId;
-    autoCameraSwitching.switchCount++;
-    autoCameraSwitching.switchHistory.push(currentTime);
-    autoCameraSwitching.switchHistory =
-      autoCameraSwitching.switchHistory.filter(
-        (time) => currentTime - time < 60000
+    const current = autoCameraSwitching.currentControllingDevice;
+    if (current === deviceId) {
+      console.log(
+        `[Auto-Switch] Device ${deviceId} already has camera control`
       );
+    } else {
+      console.log(`[Auto-Switch] Device ${deviceId} has taken camera control`);
+    }
+    logDebug(`[Auto-Switch] Switch Score for ${deviceId}: ${score.toFixed(3)}`);
+    // ...existing code follows, unchanged...
+    autoCameraSwitching.currentControllingDevice = deviceId;
+    autoCameraSwitching.lastSwitchTime = Date.now();
+    autoCameraSwitching.switchCount++;
+    autoCameraSwitching.switchHistory.push(Date.now());
+    // Send camera-request to backend
     executeIntegratedCameraSwitch(deviceId, {
       reason: "face-detection",
       confidence,
