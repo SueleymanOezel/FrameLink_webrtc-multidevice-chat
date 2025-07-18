@@ -887,86 +887,154 @@ class RoomMessageHandler {
   }
 
   activateCameraControl() {
-  frameLink.log("✅ Activating camera control for this device");
+    frameLink.log("✅ Activating camera control for this device");
 
-  roomState.hasCamera = true;
-  roomState.amCurrentCameraMaster = true;
+    roomState.hasCamera = true;
+    roomState.amCurrentCameraMaster = true;
 
-  // 🔴 NEW: Ensure local stream is fully active
-  if (frameLink.core.localStream) {
-    frameLink.core.localStream.getTracks().forEach(track => {
-      track.enabled = true;
-      frameLink.log(`📹 Enabled local track: ${track.kind} - ${track.label}`);
-    });
-  }
-
-  // Aktiviere Call-Tracks (wenn externes Call aktiv)
-  this.enableExternalCallTracks();
-
-  // 🔴 NEUE LOGIK: Track Replacement bei Manual Switch
-  if (roomState.callActiveWithExternal) {
-    frameLink.log(
-      "📞 External call active - replacing tracks for manual switch"
-    );
-    
-    // 🔴 NEW: Ensure we have the latest stream before replacement
-    this.ensureLocalStreamActive();
-    
-    setTimeout(() => {
-      this.replaceExternalCallTracks(roomState.deviceId);
-    }, 300);
-  }
-
-  // Update UI
-  updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
-
-  // Event für andere Systeme
-  frameLink.events.dispatchEvent(
-    new CustomEvent("camera-control-gained", {
-      detail: {
-        deviceId: roomState.deviceId,
-        reason: "manual-switch",
-      },
-    })
-  );
-
-  frameLink.log("🎯 Camera control activated successfully");
-}
-
-async ensureLocalStreamActive() {
-  frameLink.log("🔍 Ensuring local stream is active and available");
-  
-  try {
-    if (!frameLink.core.localStream || 
-        !frameLink.core.localStream.active || 
-        frameLink.core.localStream.getTracks().length === 0) {
-      
-      frameLink.log("📹 Requesting fresh local stream");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
+    // 🔴 NEW: Ensure local stream is fully active
+    if (frameLink.core.localStream) {
+      frameLink.core.localStream.getTracks().forEach((track) => {
+        track.enabled = true;
+        frameLink.log(`📹 Enabled local track: ${track.kind} - ${track.label}`);
       });
-      
-      frameLink.core.localStream = stream;
-      
-      // Update local video elements
-      const localVideo = document.getElementById("localVideo");
-      const localRoomVideo = document.getElementById("localRoomVideo");
-      
-      if (localVideo) localVideo.srcObject = stream;
-      if (localRoomVideo) localRoomVideo.srcObject = stream;
     }
-    
-    // Ensure all tracks are enabled
-    frameLink.core.localStream.getTracks().forEach(track => {
-      track.enabled = true;
-    });
-    
-    frameLink.log("✅ Local stream verified and active");
-  } catch (error) {
-    frameLink.log("❌ Error ensuring local stream:", error);
+
+    // Aktiviere Call-Tracks (wenn externes Call aktiv)
+    this.enableExternalCallTracks();
+
+    // 🔴 NEUE LOGIK: Track Replacement bei Manual Switch
+    if (roomState.callActiveWithExternal) {
+      frameLink.log(
+        "📞 External call active - replacing tracks for manual switch"
+      );
+
+      // 🔴 NEW: Ensure we have the latest stream before replacement
+      this.ensureLocalStreamActive();
+
+      setTimeout(() => {
+        this.replaceExternalCallTracks(roomState.deviceId);
+      }, 300);
+    }
+
+    // Update UI
+    updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
+
+    // Event für andere Systeme
+    frameLink.events.dispatchEvent(
+      new CustomEvent("camera-control-gained", {
+        detail: {
+          deviceId: roomState.deviceId,
+          reason: "manual-switch",
+        },
+      })
+    );
+
+    frameLink.log("🎯 Camera control activated successfully");
   }
-}
+
+  // 🔴 NEUE METHODE HIER EINFÜGEN:
+  async ensureLocalStreamActive() {
+    frameLink.log("🔍 Ensuring local stream is active and available");
+
+    try {
+      if (
+        !frameLink.core.localStream ||
+        !frameLink.core.localStream.active ||
+        frameLink.core.localStream.getTracks().length === 0
+      ) {
+        frameLink.log("📹 Requesting fresh local stream");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+
+        frameLink.core.localStream = stream;
+
+        // Update local video elements
+        const localVideo = document.getElementById("localVideo");
+        const localRoomVideo = document.getElementById("localRoomVideo");
+
+        if (localVideo) localVideo.srcObject = stream;
+        if (localRoomVideo) localRoomVideo.srcObject = stream;
+      }
+
+      // Ensure all tracks are enabled
+      frameLink.core.localStream.getTracks().forEach((track) => {
+        track.enabled = true;
+      });
+
+      frameLink.log("✅ Local stream verified and active");
+    } catch (error) {
+      frameLink.log("❌ Error ensuring local stream:", error);
+    }
+  }
+
+  // 🔴 NEUE METHODE HIER EINFÜGEN:
+  refreshRoomConnection(deviceId) {
+    frameLink.log(`🔄 Refreshing room connection to: ${deviceId}`);
+
+    const existingConnection = roomState.roomPeerConnections.get(deviceId);
+    if (existingConnection) {
+      // Check if we're receiving video
+      const receivers = existingConnection.getReceivers();
+      const hasVideo = receivers.some(
+        (r) =>
+          r.track && r.track.kind === "video" && r.track.readyState === "live"
+      );
+
+      if (!hasVideo) {
+        frameLink.log(
+          "⚠️ No live video track in existing connection - requesting renegotiation"
+        );
+
+        // Send a message to request video stream refresh
+        frameLink.api.sendMessage({
+          type: "request-video-refresh",
+          roomId: roomState.roomId,
+          fromDeviceId: roomState.deviceId,
+          toDeviceId: deviceId,
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+
+  async ensureLocalStreamActive() {
+    frameLink.log("🔍 Ensuring local stream is active and available");
+
+    try {
+      if (
+        !frameLink.core.localStream ||
+        !frameLink.core.localStream.active ||
+        frameLink.core.localStream.getTracks().length === 0
+      ) {
+        frameLink.log("📹 Requesting fresh local stream");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+
+        frameLink.core.localStream = stream;
+
+        // Update local video elements
+        const localVideo = document.getElementById("localVideo");
+        const localRoomVideo = document.getElementById("localRoomVideo");
+
+        if (localVideo) localVideo.srcObject = stream;
+        if (localRoomVideo) localRoomVideo.srcObject = stream;
+      }
+
+      // Ensure all tracks are enabled
+      frameLink.core.localStream.getTracks().forEach((track) => {
+        track.enabled = true;
+      });
+
+      frameLink.log("✅ Local stream verified and active");
+    } catch (error) {
+      frameLink.log("❌ Error ensuring local stream:", error);
+    }
+  }
 
   // 🔴 NEUE METHODE: Track Replacement für External Calls
   async replaceExternalCallTracks(newControllerDeviceId) {
@@ -984,30 +1052,62 @@ async ensureLocalStreamActive() {
     try {
       // Hole Stream vom neuen Controller
       let newStream = null;
+      let videoTrack = null;
 
       if (newControllerDeviceId === roomState.deviceId) {
         // Ich bin der neue Controller - verwende meinen Stream
         newStream = frameLink.core.localStream;
         frameLink.log("📹 Using my local stream for external call");
+
+        if (newStream) {
+          videoTrack = newStream.getVideoTracks()[0];
+          // Ensure track is enabled
+          if (videoTrack) {
+            videoTrack.enabled = true;
+          }
+        }
       } else {
         // Anderes Gerät ist Controller - hole Stream aus room connections
         newStream = roomState.roomVideoStreams.get(newControllerDeviceId);
         frameLink.log(
-          `📹 Using stream from room device: ${newControllerDeviceId}`
+          `📹 Looking for stream from room device: ${newControllerDeviceId}`
         );
+
+        if (!newStream) {
+          // Try to get stream from peer connection
+          const peerConnection = roomState.roomPeerConnections.get(
+            newControllerDeviceId
+          );
+          if (peerConnection) {
+            const receivers = peerConnection.getReceivers();
+            const videoReceiver = receivers.find(
+              (r) => r.track && r.track.kind === "video"
+            );
+            if (videoReceiver && videoReceiver.track) {
+              videoTrack = videoReceiver.track;
+              frameLink.log(
+                `📹 Found video track from peer connection receiver`
+              );
+            }
+          }
+        } else {
+          videoTrack = newStream.getVideoTracks()[0];
+        }
       }
 
-      if (!newStream) {
+      if (!videoTrack) {
         frameLink.log(
-          `❌ No stream available from controller: ${newControllerDeviceId}`
+          `❌ No video track available from controller: ${newControllerDeviceId}`
         );
+
+        // 🔴 WICHTIG: Verwende die neue Klassenmethode
+        this.refreshRoomConnection(newControllerDeviceId);
         return;
       }
 
-      // Replace video track auf external call
-      const videoTrack = newStream.getVideoTracks()[0];
-      if (!videoTrack) {
-        frameLink.log("❌ No video track in controller stream");
+      // Check if track is live
+      if (videoTrack.readyState !== "live") {
+        frameLink.log(`⚠️ Video track not live: ${videoTrack.readyState}`);
         return;
       }
 
@@ -1017,13 +1117,29 @@ async ensureLocalStreamActive() {
         .find((sender) => sender.track && sender.track.kind === "video");
 
       if (videoSender) {
-        await videoSender.replaceTrack(videoTrack);
+        // 🔴 NEW: Clone the track to avoid conflicts
+        const clonedTrack = videoTrack.clone();
+        clonedTrack.enabled = true;
+
+        await videoSender.replaceTrack(clonedTrack);
         frameLink.log(
-          `✅ External call video track replaced with ${newControllerDeviceId} stream`
+          `✅ External call video track replaced with ${newControllerDeviceId} stream (cloned)`
         );
 
         // Update UI
         this.updateExternalCallUI(newControllerDeviceId);
+
+        // 🔴 NEW: Verify the replacement worked
+        setTimeout(() => {
+          const currentTrack = videoSender.track;
+          if (currentTrack) {
+            frameLink.log(`✅ Verification: Track replacement successful`, {
+              enabled: currentTrack.enabled,
+              readyState: currentTrack.readyState,
+              label: currentTrack.label,
+            });
+          }
+        }, 500);
       } else {
         frameLink.log("❌ No video sender found in external call");
       }
@@ -1381,144 +1497,6 @@ async ensureLocalStreamActive() {
   }
 }
 
-// 🔴 NEUE METHODE: Track Replacement für External Calls
-async function replaceExternalCallTracks(newControllerDeviceId) {
-  frameLink.log(
-    `🔄 Replacing external call tracks: switching to ${newControllerDeviceId}`
-  );
-
-  // Prüfe ob external call aktiv ist
-  const externalCall = frameLink.core.currentCall;
-  if (!externalCall || externalCall.connectionState !== "connected") {
-    frameLink.log("ℹ️ No active external call to replace tracks for");
-    return;
-  }
-
-  try {
-    // Hole Stream vom neuen Controller
-    let newStream = null;
-    let videoTrack = null;
-
-    if (newControllerDeviceId === roomState.deviceId) {
-      // Ich bin der neue Controller - verwende meinen Stream
-      newStream = frameLink.core.localStream;
-      frameLink.log("📹 Using my local stream for external call");
-
-      if (newStream) {
-        videoTrack = newStream.getVideoTracks()[0];
-        // Ensure track is enabled
-        if (videoTrack) {
-          videoTrack.enabled = true;
-        }
-      }
-    } else {
-      // Anderes Gerät ist Controller - hole Stream aus room connections
-      newStream = roomState.roomVideoStreams.get(newControllerDeviceId);
-      frameLink.log(
-        `📹 Looking for stream from room device: ${newControllerDeviceId}`
-      );
-
-      if (!newStream) {
-        // Try to get stream from peer connection
-        const peerConnection = roomState.roomPeerConnections.get(
-          newControllerDeviceId
-        );
-        if (peerConnection) {
-          const receivers = peerConnection.getReceivers();
-          const videoReceiver = receivers.find(
-            (r) => r.track && r.track.kind === "video"
-          );
-          if (videoReceiver && videoReceiver.track) {
-            videoTrack = videoReceiver.track;
-            frameLink.log(`📹 Found video track from peer connection receiver`);
-          }
-        }
-      } else {
-        videoTrack = newStream.getVideoTracks()[0];
-      }
-    }
-
-    if (!videoTrack) {
-      frameLink.log(
-        `❌ No video track available from controller: ${newControllerDeviceId}`
-      );
-
-      // 🔴 NEW: Fallback - try to refresh the connection
-      frameLink.log(
-        "🔄 Attempting to refresh room connection to get video track"
-      );
-      this.refreshRoomConnection(newControllerDeviceId);
-      return;
-    }
-
-    // Check if track is live
-    if (videoTrack.readyState !== "live") {
-      frameLink.log(`⚠️ Video track not live: ${videoTrack.readyState}`);
-      return;
-    }
-
-    // Finde Video Sender in external call
-    const videoSender = externalCall
-      .getSenders()
-      .find((sender) => sender.track && sender.track.kind === "video");
-
-    if (videoSender) {
-      // 🔴 NEW: Clone the track to avoid conflicts
-      const clonedTrack = videoTrack.clone();
-      clonedTrack.enabled = true;
-
-      await videoSender.replaceTrack(clonedTrack);
-      frameLink.log(
-        `✅ External call video track replaced with ${newControllerDeviceId} stream (cloned)`
-      );
-
-      // Update UI
-      this.updateExternalCallUI(newControllerDeviceId);
-
-      // 🔴 NEW: Verify the replacement worked
-      setTimeout(() => {
-        const currentTrack = videoSender.track;
-        if (currentTrack) {
-          frameLink.log(`✅ Verification: Track replacement successful`, {
-            enabled: currentTrack.enabled,
-            readyState: currentTrack.readyState,
-            label: currentTrack.label,
-          });
-        }
-      }, 500);
-    } else {
-      frameLink.log("❌ No video sender found in external call");
-    }
-  } catch (error) {
-    frameLink.log(`❌ Track replacement failed:`, error);
-  }
-}
-
-// 5. NEW METHOD: Refresh room connection to get video
-refreshRoomConnection(deviceId) {
-  frameLink.log(`🔄 Refreshing room connection to: ${deviceId}`);
-  
-  const existingConnection = roomState.roomPeerConnections.get(deviceId);
-  if (existingConnection) {
-    // Check if we're receiving video
-    const receivers = existingConnection.getReceivers();
-    const hasVideo = receivers.some(r => r.track && r.track.kind === "video" && r.track.readyState === "live");
-    
-    if (!hasVideo) {
-      frameLink.log("⚠️ No live video track in existing connection - requesting renegotiation");
-      
-      // Send a message to request video stream refresh
-      frameLink.api.sendMessage({
-        type: "request-video-refresh",
-        roomId: roomState.roomId,
-        fromDeviceId: roomState.deviceId,
-        toDeviceId: deviceId,
-        timestamp: Date.now()
-      });
-    }
-  }
-}
-
 // ================================================================
 // 🎥 ROOM VIDEO STREAMING MANAGER
 // ================================================================
@@ -1662,33 +1640,33 @@ class RoomVideoManager {
 
   async handlePeerJoined(message) {
     const remoteDeviceId = message.deviceId;
-  if (remoteDeviceId === roomState.deviceId) {
-    frameLink.log(`⭕ Ignoring self-announcement: ${remoteDeviceId}`);
-    return;
-  }
-
-  // 🔴 ERWEITERTE CONNECTION PRÜFUNG
-  if (roomState.roomPeerConnections.has(remoteDeviceId)) {
-    const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
-    if (
-      existingPc.connectionState === "connected" ||
-      existingPc.connectionState === "connecting"
-    ) {
-      frameLink.log(
-        `✅ Already connected to: ${remoteDeviceId} (${existingPc.connectionState})`
-      );
-      
-      // 🔴 NEW: Ensure video is being received if external call is active
-      if (roomState.callActiveWithExternal) {
-        this.verifyRoomVideoStream(remoteDeviceId, existingPc);
-      }
+    if (remoteDeviceId === roomState.deviceId) {
+      frameLink.log(`⭕ Ignoring self-announcement: ${remoteDeviceId}`);
       return;
-    } else {
-      frameLink.log(`🔄 Cleaning up failed connection to: ${remoteDeviceId}`);
-      existingPc.close();
-      roomState.roomPeerConnections.delete(remoteDeviceId);
     }
-  }
+
+    // 🔴 ERWEITERTE CONNECTION PRÜFUNG
+    if (roomState.roomPeerConnections.has(remoteDeviceId)) {
+      const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
+      if (
+        existingPc.connectionState === "connected" ||
+        existingPc.connectionState === "connecting"
+      ) {
+        frameLink.log(
+          `✅ Already connected to: ${remoteDeviceId} (${existingPc.connectionState})`
+        );
+
+        // 🔴 NEW: Ensure video is being received if external call is active
+        if (roomState.callActiveWithExternal) {
+          this.verifyRoomVideoStream(remoteDeviceId, existingPc);
+        }
+        return;
+      } else {
+        frameLink.log(`🔄 Cleaning up failed connection to: ${remoteDeviceId}`);
+        existingPc.close();
+        roomState.roomPeerConnections.delete(remoteDeviceId);
+      }
+    }
 
     // 🔴 RACE CONDITION PREVENTION
     const shouldIOffer = roomState.deviceId < remoteDeviceId;
@@ -1751,27 +1729,29 @@ class RoomVideoManager {
   }
 
   verifyRoomVideoStream(deviceId, peerConnection) {
-  const receivers = peerConnection.getReceivers();
-  const videoReceiver = receivers.find(r => r.track && r.track.kind === "video");
-  
-  if (videoReceiver && videoReceiver.track) {
-    const track = videoReceiver.track;
-    frameLink.log(`📹 Room video stream status for ${deviceId}:`, {
-      enabled: track.enabled,
-      readyState: track.readyState,
-      muted: track.muted
-    });
-    
-    // Store the stream if not already stored
-    if (!roomState.roomVideoStreams.has(deviceId)) {
-      const stream = new MediaStream([track]);
-      roomState.roomVideoStreams.set(deviceId, stream);
-      frameLink.log(`📹 Stored room video stream for ${deviceId}`);
+    const receivers = peerConnection.getReceivers();
+    const videoReceiver = receivers.find(
+      (r) => r.track && r.track.kind === "video"
+    );
+
+    if (videoReceiver && videoReceiver.track) {
+      const track = videoReceiver.track;
+      frameLink.log(`📹 Room video stream status for ${deviceId}:`, {
+        enabled: track.enabled,
+        readyState: track.readyState,
+        muted: track.muted,
+      });
+
+      // Store the stream if not already stored
+      if (!roomState.roomVideoStreams.has(deviceId)) {
+        const stream = new MediaStream([track]);
+        roomState.roomVideoStreams.set(deviceId, stream);
+        frameLink.log(`📹 Stored room video stream for ${deviceId}`);
+      }
+    } else {
+      frameLink.log(`⚠️ No video track received from ${deviceId}`);
     }
-  } else {
-    frameLink.log(`⚠️ No video track received from ${deviceId}`);
   }
-}
 
   async handleRoomVideoOffer(message) {
     if (message.toDeviceId !== roomState.deviceId) {
