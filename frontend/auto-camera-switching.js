@@ -48,6 +48,13 @@
   // FACE DETECTION DECISION ENGINE
   // ========================================
 
+  // GLOBAL: Track detection timers per device for stability
+  const detectionTimers = new Map();
+
+  /**
+   * Main entry: Called on every face detection update.
+   * Implements a sliding window/timer for stability.
+   */
   function processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence) {
     if (!autoCameraSwitching.enabled) return;
 
@@ -69,50 +76,143 @@
       return;
     }
 
-    const oldState = autoCameraSwitching.faceStates.get(deviceId) || {
+    // --- Sliding window stability logic ---
+    let state = autoCameraSwitching.faceStates.get(deviceId) || {
       hasFace: false,
       confidence: 0,
+      previousConfidence: 0,
+      isStable: false,
+      stableDetectionStart: null,
+      lastUpdate: 0,
       consecutiveDetections: 0,
     };
 
-    const sameFace = oldState.hasFace === hasFace;
-    const consecutive = sameFace ? oldState.consecutiveDetections + 1 : 1;
+    const now = Date.now();
 
-    const newState = {
-      hasFace,
-      previousConfidence: oldState.confidence,
-      confidence,
-      consecutiveDetections: consecutive,
-      isStable: consecutive >= AUTO_SWITCH_CONFIG.stabilityPeriod,
-      lastUpdate: Date.now(),
-    };
+    // If face detected with sufficient confidence, start or continue timer
+    if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
+      if (!state.stableDetectionStart) {
+        state.stableDetectionStart = now;
+        state.consecutiveDetections = 1;
+      } else {
+        // Count how many times we've seen a detection in the window
+        state.consecutiveDetections += 1;
+      }
+      // If window is long enough, mark as stable
+      if (
+        now - state.stableDetectionStart >=
+        AUTO_SWITCH_CONFIG.stabilityPeriod
+      ) {
+        if (!state.isStable) {
+          state.isStable = true;
+          logDebug(
+            `[FaceState] ${deviceId} isStable=true (after ${AUTO_SWITCH_CONFIG.stabilityPeriod}ms)`
+          );
+        }
+      } else {
+        state.isStable = false;
+      }
+    } else {
+      // Face lost or confidence too low: reset timer and stability
+      state.stableDetectionStart = null;
+      state.isStable = false;
+      state.consecutiveDetections = 0;
+    }
 
-    autoCameraSwitching.faceStates.set(deviceId, newState);
+    // Update state
+    state.hasFace = hasFace;
+    state.previousConfidence = state.confidence;
+    state.confidence = confidence;
+    state.lastUpdate = now;
+    autoCameraSwitching.faceStates.set(deviceId, state);
 
+    // Log state changes
+    const oldState = detectionTimers.get(deviceId) || {};
     const stateChanged =
-      oldState.hasFace !== newState.hasFace ||
-      oldState.isStable !== newState.isStable ||
-      Math.abs(oldState.confidence - newState.confidence) >=
+      oldState.hasFace !== state.hasFace ||
+      oldState.isStable !== state.isStable ||
+      Math.abs((oldState.confidence || 0) - state.confidence) >=
         AUTO_SWITCH_CONFIG.faceDetectionThreshold;
 
     if (stateChanged) {
       logDebug(`🔄 [FaceState] ${deviceId}:`, {
-        hasFace: newState.hasFace,
-        confidence: newState.confidence.toFixed(2),
-        previousConfidence: newState.previousConfidence.toFixed(2),
-        consecutiveDetections: newState.consecutiveDetections,
-        isStable: newState.isStable,
+        hasFace: state.hasFace,
+        confidence: state.confidence.toFixed(2),
+        previousConfidence: state.previousConfidence.toFixed(2),
+        consecutiveDetections: state.consecutiveDetections,
+        isStable: state.isStable,
       });
     }
+    detectionTimers.set(deviceId, { ...state }); // Save for next diff
 
-    if (hasFace && confidence >= AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
-      evaluateSwitchToDevice(deviceId, confidence);
+    // --- Camera control logic ---
+    if (state.isStable) {
+      // Compute switch score
+      const prevConf =
+        typeof state.previousConfidence === "number"
+          ? state.previousConfidence
+          : 0;
+      const score =
+        state.confidence -
+        prevConf +
+        (state.confidence > 0.8 ? AUTO_SWITCH_CONFIG.confidenceBonus : 0);
+
+      logDebug(
+        `[Auto-Switch] Switch Score for ${deviceId}: ${score.toFixed(3)}`
+      );
+
+      // Find the best stable device
+      let bestId = deviceId;
+      let bestScore = score;
+      autoCameraSwitching.faceStates.forEach((other, id) => {
+        if (
+          id !== deviceId &&
+          other.isStable &&
+          other.hasFace &&
+          typeof other.previousConfidence === "number"
+        ) {
+          const otherScore =
+            other.confidence -
+            (other.previousConfidence || 0) +
+            (other.confidence > 0.8 ? AUTO_SWITCH_CONFIG.confidenceBonus : 0);
+          logDebug(
+            `[Auto-Switch] Switch Score for ${id}: ${otherScore.toFixed(3)}`
+          );
+          if (otherScore > bestScore) {
+            bestId = id;
+            bestScore = otherScore;
+          }
+        }
+      });
+
+      // Assign controller if this device is best
+      if (bestId === deviceId && bestScore > 0.1) {
+        if (autoCameraSwitching.currentControllingDevice === deviceId) {
+          console.log(
+            `[Auto-Switch] Device ${deviceId} already has camera control`
+          );
+          logDebug(
+            `[Auto-Switch] Device ${deviceId} already has camera control`
+          );
+        } else {
+          autoCameraSwitching.currentControllingDevice = deviceId;
+          console.log(
+            `[Auto-Switch] Device ${deviceId} has taken camera control`
+          );
+          logDebug(
+            `[Auto-Switch] Device ${deviceId} has taken camera control (score=${score.toFixed(3)})`
+          );
+          requestAutomaticCameraSwitch(deviceId, state.confidence, score);
+        }
+      }
     } else if (
       !hasFace &&
       autoCameraSwitching.currentControllingDevice === deviceId
     ) {
+      // Lost face: try to switch away
       evaluateSwitchAway(deviceId);
     }
+
     cleanupPendingSwitches();
   }
 
