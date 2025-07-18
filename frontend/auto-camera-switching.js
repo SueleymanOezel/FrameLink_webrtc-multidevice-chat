@@ -1150,69 +1150,70 @@
     logDebug("🧪 =================================");
   }
 
-  // ========================================
-  // UTILITIES & LOGGING
-  // ========================================
-
-  function logDebug(message, data = null) {
-    if (!AUTO_SWITCH_CONFIG.enableLogging) return;
-
-    // 🔴 ENHANCED ANTI-SPAM: Rate limiting for repeated messages
-    const now = Date.now();
-    const RATE_LIMIT_MS = 3000; // 3 Sekunden zwischen gleichen Nachrichten
-
-    // Create message hash (remove dynamic parts)
-    const msgHash = message
-      .replace(/\d{2}:\d{2}:\d{2}/g, "")
-      .replace(/conf=\d+\.\d+/g, "conf=X.XX")
-      .replace(/\d+ms/g, "Xms")
-      .replace(/\d+\.\d+/g, "X.X");
-
-    // Check rate limit
-    if (!logDebug._lastLogged) logDebug._lastLogged = new Map();
-
-    if (logDebug._lastLogged.has(msgHash)) {
-      const lastTime = logDebug._lastLogged.get(msgHash);
-      if (now - lastTime < RATE_LIMIT_MS) {
-        return; // Skip - too soon
-      }
-    }
-
-    // Update last logged time
-    logDebug._lastLogged.set(msgHash, now);
-
-    // Clean old entries periodically
-    if (logDebug._lastLogged.size > 100) {
-      const oldEntries = Array.from(logDebug._lastLogged.entries()).filter(
-        ([_, time]) => now - time > RATE_LIMIT_MS * 5
+  /**
+   * Debounced Event Handler für Face Detection
+   */
+  let debounceTimeout = null;
+  function handleFaceDetectionEvent(deviceId, hasFace, confidence) {
+    if (!hasFace || confidence < AUTO_SWITCH_CONFIG.faceDetectionThreshold) {
+      logDebug(
+        `❌ Ignoring face detection for ${deviceId} (confidence too low)`
       );
-      oldEntries.forEach(([key]) => logDebug._lastLogged.delete(key));
+      return;
     }
 
-    // 🔴 ANTI-SPAM: Skip frequent messages
-    const spamPatterns = [
-      /Face State Update/i,
-      /Warte auf stabile/i,
-      /Switch Score/i,
-      /evaluiere Alternative/i,
-      /Hysterese aktiv/i,
-      /Hook.*wechsle Kontrolle/i,
-    ];
+    // Debounce: Verhindere mehrfachen Aufruf innerhalb von 500ms
+    if (debounceTimeout) clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(async () => {
+      try {
+        logDebug(`🎯 Processing face detection for ${deviceId}`);
 
-    if (spamPatterns.some((pattern) => pattern.test(message))) {
-      return; // Skip these messages
+        // Prüfe, ob ein Wechsel notwendig ist
+        if (autoCameraSwitching.currentControllingDevice !== deviceId) {
+          logDebug(`🔄 Switching to device: ${deviceId}`);
+          await switchToDevice(deviceId); // Async-Aufruf mit Fehlerbehandlung
+          autoCameraSwitching.currentControllingDevice = deviceId;
+          logDebug(`✅ Successfully switched to device: ${deviceId}`);
+        } else {
+          logDebug(`ℹ️ Device ${deviceId} already in control`);
+        }
+      } catch (error) {
+        logDebug(`❌ Error during switchToDevice: ${error.message}`);
+      }
+    }, 500); // Stabilitätszeit von 500ms
+  }
+
+  // Konsolidierte Event-Listener
+  function setupFaceDetectionIntegration() {
+    logDebug("🔗 Setting up Face Detection Integration...");
+
+    // Event-Listener für verschiedene Quellen
+    window.addEventListener("face-detection-update", (event) => {
+      const { deviceId, hasFace, confidence } = event.detail;
+      logDebug(
+        `[Face Detection Event] ${deviceId}: ${hasFace} (${confidence})`
+      );
+      handleFaceDetectionEvent(deviceId, hasFace, confidence);
+    });
+
+    window.addEventListener("auto-switch-face-detection", (event) => {
+      const { deviceId, hasFace, confidence } = event.detail;
+      logDebug(`[Auto-Switch Event] ${deviceId}: ${hasFace} (${confidence})`);
+      handleFaceDetectionEvent(deviceId, hasFace, confidence);
+    });
+
+    if (window.frameLink?.events) {
+      window.frameLink.events.addEventListener(
+        "face-detection-change",
+        (event) => {
+          const { deviceId, hasFace, confidence } = event.detail;
+          logDebug(`[FrameLink Event] ${deviceId}: ${hasFace} (${confidence})`);
+          handleFaceDetectionEvent(deviceId, hasFace, confidence);
+        }
+      );
     }
-    const timestamp = new Date().toLocaleTimeString();
-    const logEntry = { timestamp, message, data };
-    autoCameraSwitching.debugLogs.push(logEntry);
-    if (autoCameraSwitching.debugLogs.length > 100) {
-      autoCameraSwitching.debugLogs.shift();
-    }
-    if (data) {
-      console.log(`[Auto-Switch ${timestamp}] ${message}`, data);
-    } else {
-      console.log(`[Auto-Switch ${timestamp}] ${message}`);
-    }
+
+    logDebug("✅ Face Detection Integration completed");
   }
 
   // ========================================
