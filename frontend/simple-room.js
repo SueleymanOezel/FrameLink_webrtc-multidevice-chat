@@ -1866,7 +1866,7 @@ class RoomVideoManager {
         roomState.roomPeerConnections.delete(fromDeviceId);
       }
 
-      // Create fresh peer connection
+      // Create fresh peer connection. Diese Funktion fügt die Tracks bereits hinzu.
       peerConnection = frameLink.api.createPeerConnection();
       roomState.roomPeerConnections.set(fromDeviceId, peerConnection);
 
@@ -1876,14 +1876,7 @@ class RoomVideoManager {
       await peerConnection.setRemoteDescription(message.offer);
       console.log(`✅ Set remote description from ${fromDeviceId}`);
 
-      // Add local stream
-      const coreState = frameLink.api.getState();
-      if (coreState.localStream) {
-        coreState.localStream.getTracks().forEach((track) => {
-          peerConnection.addTrack(track, coreState.localStream);
-          console.log(`📹 Added track to peer ${fromDeviceId}: ${track.kind}`);
-        });
-      }
+      // DER FEHLERHAFTE BLOCK WURDE HIER ENTFERNT
 
       // Create and send answer
       const answer = await peerConnection.createAnswer();
