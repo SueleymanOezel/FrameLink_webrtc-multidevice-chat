@@ -792,7 +792,8 @@ class RoomMessageHandler {
     // Listen to WebSocket messages from frameLink
     frameLink.events.addEventListener("websocket-message", (event) => {
       const message = event.detail.message;
-      // Only log room-related messages, not ping/pong
+
+      // 🔴 ERWEITERTE MESSAGE LOGGING für Room Video Debugging
       if (
         message.type &&
         [
@@ -806,8 +807,18 @@ class RoomMessageHandler {
           "room-video-ice",
         ].includes(message.type)
       ) {
-        console.log("📨 DEBUG: Received room message:", message.type, message);
+        console.log(
+          "📨 [ROOM-VIDEO-DEBUG] Received room message:",
+          message.type,
+          {
+            from: message.fromDeviceId,
+            to: message.toDeviceId,
+            roomId: message.roomId,
+            full: message,
+          }
+        );
       }
+
       this.handleMessage(message);
     });
   }
@@ -1439,51 +1450,42 @@ class RoomMessageHandler {
     const previousDeviceCount = roomState.roomDeviceCount;
     roomState.roomDeviceCount = deviceCount;
 
-    // Only log if device count changed
-    if (deviceCount !== previousDeviceCount) {
-      console.log(
-        `📨 Room update: ${deviceCount} devices (was ${previousDeviceCount}):`,
-        devices
-      );
-      frameLink.log(`🏠 Room update: ${deviceCount} devices`, devices);
-    }
+    console.log(
+      `📨 [PHASE3-FIX] Room update: ${deviceCount} devices (was ${previousDeviceCount}):`,
+      devices.map((d) => d.deviceId)
+    );
 
     // Update UI device count
     if (window.roomVideoManager) {
       window.roomVideoManager.updateDeviceCount();
     }
 
-    // 🔴 FIX: Aktiv mit allen Devices verbinden
+    // 🔴 AGGRESSIVE CONNECTION zu allen neuen Devices
     devices.forEach((device) => {
       if (device.deviceId !== roomState.deviceId) {
-        // Check if we're already connected
-        if (!roomState.roomPeerConnections.has(device.deviceId)) {
-          console.log(`📨 Connecting to new device: ${device.deviceId}`);
-          frameLink.log(
-            `🔍 Discovered new device: ${device.deviceId} - initiating connection`
+        const isNewDevice = !roomState.roomPeerConnections.has(device.deviceId);
+
+        if (isNewDevice) {
+          console.log(
+            `📨 [NEW-DEVICE] Discovered: ${device.deviceId} - connecting aggressively`
           );
-          // Simulate a peer joined event to trigger connection
+
+          // Immediate connection attempt with random delay
+          const delay = Math.random() * 1500;
           setTimeout(() => {
             this.roomVideoManager.handlePeerJoined({
               deviceId: device.deviceId,
               roomId: roomState.roomId,
             });
-          }, Math.random() * 1000); // Random delay to avoid collision
+          }, delay);
+        } else {
+          const existingPc = roomState.roomPeerConnections.get(device.deviceId);
+          console.log(
+            `📨 [EXISTING] Device ${device.deviceId}: ${existingPc.connectionState}`
+          );
         }
       }
     });
-
-    // 🔴 NEW: If external call is active and new device joined, ensure proper stream setup
-    if (roomState.callActiveWithExternal && deviceCount > previousDeviceCount) {
-      frameLink.log(
-        "📞 New device joined while external call active - ensuring stream continuity"
-      );
-
-      // Wait for new connections to establish
-      setTimeout(() => {
-        this.ensureAllDevicesStreamReady();
-      }, 2000);
-    }
   }
 
   // 2. NEW METHOD: Ensure all room devices have active streams
@@ -1688,76 +1690,62 @@ class RoomVideoManager {
   }
 
   startPeerDiscovery() {
-    frameLink.log("🔍 Starting enhanced peer discovery process");
+    console.log("🔍 [PHASE3-FIX] Starting aggressive peer discovery process");
 
-    // 🔴 CRITICAL: Check for external call protection
-    const checkExternalCall = () => {
-      return (
-        frameLink.core.currentCall &&
-        (frameLink.core.currentCall.connectionState === "connected" ||
-          frameLink.core.currentCall.connectionState === "connecting")
-      );
+    // 🔴 AGGRESSIVE PEER ANNOUNCEMENT
+    const announceAggressive = () => {
+      frameLink.api.sendMessage({
+        type: "room-peer-joined",
+        roomId: roomState.roomId,
+        deviceId: roomState.deviceId,
+        timestamp: Date.now(),
+      });
+      console.log(`📢 [AGGRESSIVE] Announced room peer: ${roomState.deviceId}`);
     };
 
-    // Initial peer request only if no external call
-    if (!checkExternalCall()) {
+    // Initial announcement
+    announceAggressive();
+
+    // Request existing peers
+    setTimeout(() => {
       frameLink.api.sendMessage({
         type: "request-room-peers",
         roomId: roomState.roomId,
         deviceId: roomState.deviceId,
       });
-    } else {
-      frameLink.log(
-        "📞 External call active - skipping initial peer discovery"
-      );
-    }
+      console.log("📤 Requested existing room peers");
+    }, 500);
 
-    // 🔴 MUCH MORE CONSERVATIVE PEER DISCOVERY
+    // 🔴 AGGRESSIVE DISCOVERY INTERVAL
     this.peerDiscoveryInterval = setInterval(() => {
-      const hasExternalCall = checkExternalCall();
-
-      // If external call is active, be MUCH more conservative
-      if (hasExternalCall) {
-        // Only announce every 30 seconds if external call active
-        if (Date.now() - (this.lastDiscovery || 0) > 30000) {
-          frameLink.log("📞 External call active - limited room announcement");
-          this.announceRoomPeer();
-          this.lastDiscovery = Date.now();
-        }
-        return; // Skip all other discovery when external call active
-      }
-
-      // Normal peer discovery only when NO external call
       const connectedCount = roomState.roomPeerConnections.size;
       const expectedCount = roomState.roomDeviceCount - 1;
 
-      // Regular announcement every 15 seconds (instead of 5)
-      if (Date.now() - (this.lastDiscovery || 0) > 15000) {
-        this.announceRoomPeer();
+      console.log(
+        `📊 Peer Discovery Status: ${connectedCount}/${expectedCount} connections`
+      );
+
+      // Regular announcement every 10 seconds
+      if (Date.now() - (this.lastDiscovery || 0) > 10000) {
+        announceAggressive();
         this.lastDiscovery = Date.now();
       }
 
-      // Peer request only if really missing connections
-      if (
-        connectedCount < expectedCount &&
-        Date.now() - (this.lastPeerRequest || 0) > 20000
-      ) {
-        frameLink.log(
-          `⚠️ Missing connections: ${connectedCount}/${expectedCount}`
-        );
+      // Aggressive peer request if missing connections
+      if (connectedCount < expectedCount) {
+        console.log(`⚠️ Missing connections, requesting peers again`);
         frameLink.api.sendMessage({
           type: "request-room-peers",
           roomId: roomState.roomId,
           deviceId: roomState.deviceId,
         });
-        this.lastPeerRequest = Date.now();
       }
-    }, 10000); // Check every 10 seconds instead of 5
+    }, 5000); // Every 5 seconds instead of 10
 
-    // Longer timeout for initial discovery
+    // Extended completion timeout
     setTimeout(() => {
       this.completePeerDiscovery();
-    }, this.peerDiscoveryTimeout);
+    }, 10000); // 10 seconds instead of 5
   }
 
   completePeerDiscovery() {
@@ -1793,86 +1781,26 @@ class RoomVideoManager {
       return;
     }
 
+    console.log(`🔧 [PHASE3-FIX] Handling peer joined: ${remoteDeviceId}`);
+
     // 🔴 ERWEITERTE CONNECTION PRÜFUNG
     if (roomState.roomPeerConnections.has(remoteDeviceId)) {
       const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
-      if (
-        existingPc.connectionState === "connected" ||
-        existingPc.connectionState === "connecting"
-      ) {
-        frameLink.log(
-          `✅ Already connected to: ${remoteDeviceId} (${existingPc.connectionState})`
-        );
+      const state = existingPc.connectionState;
 
-        // 🔴 NEW: Ensure video is being received if external call is active
-        if (roomState.callActiveWithExternal) {
-          this.verifyRoomVideoStream(remoteDeviceId, existingPc);
-        }
+      console.log(`🔍 Existing connection to ${remoteDeviceId}: ${state}`);
+
+      if (state === "connected") {
+        frameLink.log(`✅ Already connected to: ${remoteDeviceId}`);
+        return;
+      } else if (state === "connecting") {
+        frameLink.log(`⏳ Already connecting to: ${remoteDeviceId}`);
         return;
       } else {
-        frameLink.log(`🔄 Cleaning up failed connection to: ${remoteDeviceId}`);
+        console.log(`🧹 Cleaning up failed connection: ${state}`);
         existingPc.close();
         roomState.roomPeerConnections.delete(remoteDeviceId);
       }
-    }
-
-    // 🔴 RACE CONDITION PREVENTION
-    const shouldIOffer = roomState.deviceId < remoteDeviceId;
-    if (!shouldIOffer) {
-      frameLink.log(
-        `🤝 Waiting for offer from ${remoteDeviceId} (they have priority)`
-      );
-      return;
-    }
-
-    frameLink.log(`🚀 Initiating room video connection to: ${remoteDeviceId}`);
-
-    try {
-      const peerConnection = frameLink.api.createPeerConnection();
-      roomState.roomPeerConnections.set(remoteDeviceId, peerConnection);
-
-      // Add local stream FIRST
-      const coreState = frameLink.api.getState();
-      if (coreState.localStream) {
-        coreState.localStream.getTracks().forEach((track) => {
-          peerConnection.addTrack(track, coreState.localStream);
-          frameLink.log(
-            `📹 Added track to peer ${remoteDeviceId}: ${track.kind}`
-          );
-        });
-      } else {
-        frameLink.log(
-          `⚠️ No local stream available for peer ${remoteDeviceId}`
-        );
-      }
-
-      // Setup event handlers
-      this.setupRoomPeerConnectionHandlers(peerConnection, remoteDeviceId);
-
-      // Create and send offer
-      const offer = await peerConnection.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-
-      await peerConnection.setLocalDescription(offer);
-
-      frameLink.api.sendMessage({
-        type: "room-video-offer",
-        roomId: roomState.roomId,
-        fromDeviceId: roomState.deviceId,
-        toDeviceId: remoteDeviceId,
-        offer: offer,
-        timestamp: Date.now(),
-      });
-
-      frameLink.log(`📤 Sent room video offer to: ${remoteDeviceId}`);
-    } catch (error) {
-      frameLink.log(
-        `❌ Failed to create peer connection to ${remoteDeviceId}:`,
-        error
-      );
-      roomState.roomPeerConnections.delete(remoteDeviceId);
     }
   }
 
@@ -1903,73 +1831,68 @@ class RoomVideoManager {
 
   async handleRoomVideoOffer(message) {
     if (message.toDeviceId !== roomState.deviceId) {
-      frameLink.log(
+      console.log(
         `⭕ Offer not for me: ${message.toDeviceId} vs ${roomState.deviceId}`
       );
       return;
     }
 
     const fromDeviceId = message.fromDeviceId;
-    frameLink.log(`📥 Room video offer from: ${fromDeviceId}`);
+    console.log(`📥 [PHASE3-FIX] Room video offer from: ${fromDeviceId}`);
 
     try {
-      // Check if already connected
-      if (roomState.roomPeerConnections.has(fromDeviceId)) {
-        frameLink.log(
-          `✅ Already connected to ${fromDeviceId} - ignoring offer`
+      // 🔴 AGGRESSIVE: Auch wenn connection existiert, ersetzen falls nötig
+      let peerConnection = roomState.roomPeerConnections.get(fromDeviceId);
+
+      if (peerConnection && peerConnection.connectionState !== "new") {
+        console.log(
+          `🔄 Replacing existing connection to ${fromDeviceId} (state: ${peerConnection.connectionState})`
         );
-        return;
+        peerConnection.close();
+        roomState.roomPeerConnections.delete(fromDeviceId);
       }
 
-      const peerConnection = frameLink.api.createPeerConnection();
+      // Create fresh peer connection
+      peerConnection = frameLink.api.createPeerConnection();
       roomState.roomPeerConnections.set(fromDeviceId, peerConnection);
 
       this.setupRoomPeerConnectionHandlers(peerConnection, fromDeviceId);
 
-      // 🔴 SAFETY: Check peer connection state before setting remote description
-      if (peerConnection.signalingState === "stable") {
-        await peerConnection.setRemoteDescription(message.offer);
-      } else {
-        frameLink.log(
-          `⚠️ Room peer connection in wrong state: ${peerConnection.signalingState} - ignoring offer`
-        );
-        return;
-      }
-
-      if (peerConnection.signalingState !== "stable") {
-        frameLink.log(
-          `⚠️ Room peer in wrong state: ${peerConnection.signalingState}`
-        );
-        return;
-      }
+      // Set remote description
       await peerConnection.setRemoteDescription(message.offer);
+      console.log(`✅ Set remote description from ${fromDeviceId}`);
 
       // Add local stream
       const coreState = frameLink.api.getState();
       if (coreState.localStream) {
         coreState.localStream.getTracks().forEach((track) => {
           peerConnection.addTrack(track, coreState.localStream);
-          frameLink.log(
-            `📹 Added track to peer ${fromDeviceId}: ${track.kind}`
-          );
+          console.log(`📹 Added track to peer ${fromDeviceId}: ${track.kind}`);
         });
       }
 
+      // Create and send answer
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
 
-      frameLink.api.sendMessage({
+      const response = {
         type: "room-video-answer",
         roomId: roomState.roomId,
         fromDeviceId: roomState.deviceId,
         toDeviceId: fromDeviceId,
         answer: answer,
         timestamp: Date.now(),
-      });
+      };
 
-      frameLink.log(`📤 Sent room video answer to: ${fromDeviceId}`);
+      const success = frameLink.api.sendMessage(response);
+
+      if (success) {
+        console.log(`📤 [PHASE3-FIX] Answer sent to: ${fromDeviceId}`);
+      } else {
+        console.log(`❌ Failed to send answer to: ${fromDeviceId}`);
+      }
     } catch (error) {
-      frameLink.log(`❌ Failed to handle offer from ${fromDeviceId}:`, error);
+      console.log(`❌ Failed to handle offer from ${fromDeviceId}:`, error);
       roomState.roomPeerConnections.delete(fromDeviceId);
     }
   }
@@ -2008,6 +1931,74 @@ class RoomVideoManager {
       frameLink.log(
         `⚠️ No peer connection found for answer from: ${fromDeviceId}`
       );
+    }
+  }
+
+  async createAggressiveRoomOffer(remoteDeviceId) {
+    console.log(
+      `📤 [AGGRESSIVE] Creating room video offer for: ${remoteDeviceId}`
+    );
+
+    try {
+      // Create peer connection using frameLink API
+      const peerConnection = frameLink.api.createPeerConnection();
+      roomState.roomPeerConnections.set(remoteDeviceId, peerConnection);
+
+      // Setup handlers FIRST
+      this.setupRoomPeerConnectionHandlers(peerConnection, remoteDeviceId);
+
+      // Add local stream
+      const coreState = frameLink.api.getState();
+      if (coreState.localStream) {
+        coreState.localStream.getTracks().forEach((track) => {
+          peerConnection.addTrack(track, coreState.localStream);
+          console.log(`📹 Added track: ${track.kind} to ${remoteDeviceId}`);
+        });
+      } else {
+        console.log(`⚠️ No local stream for peer ${remoteDeviceId}`);
+      }
+
+      // Create offer
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+
+      await peerConnection.setLocalDescription(offer);
+
+      // Send via WebSocket with enhanced logging
+      const message = {
+        type: "room-video-offer",
+        roomId: roomState.roomId,
+        fromDeviceId: roomState.deviceId,
+        toDeviceId: remoteDeviceId,
+        offer: offer,
+        timestamp: Date.now(),
+      };
+
+      console.log(`📤 [PHASE3-FIX] Sending room-video-offer:`, {
+        to: remoteDeviceId,
+        messageType: message.type,
+        roomId: message.roomId,
+      });
+
+      const success = frameLink.api.sendMessage(message);
+
+      if (success) {
+        console.log(
+          `✅ Room video offer sent successfully to: ${remoteDeviceId}`
+        );
+      } else {
+        console.log(`❌ Failed to send room video offer to: ${remoteDeviceId}`);
+        // Cleanup on failure
+        roomState.roomPeerConnections.delete(remoteDeviceId);
+      }
+    } catch (error) {
+      console.log(
+        `❌ Failed to create aggressive offer for ${remoteDeviceId}:`,
+        error
+      );
+      roomState.roomPeerConnections.delete(remoteDeviceId);
     }
   }
 
@@ -3141,6 +3132,68 @@ class EnhancedRoomSystem {
         if (window.enhancedRoomSystem?.roomVideoManager) {
           window.enhancedRoomSystem.roomVideoManager.updateExternalCallVideoRouting();
         }
+      },
+
+      phase3Fix: {
+        forceConnection: (targetDeviceId) => {
+          console.log(`🚀 [MANUAL] Force connecting to: ${targetDeviceId}`);
+          const roomVideoManager = window.enhancedRoomSystem?.roomVideoManager;
+          if (roomVideoManager && roomVideoManager.createAggressiveRoomOffer) {
+            roomVideoManager.createAggressiveRoomOffer(targetDeviceId);
+          } else {
+            console.log("❌ Room video manager not available");
+          }
+        },
+
+        checkConnections: () => {
+          console.log("📊 [DEBUG] Current room connections:");
+          console.log("  Room ID:", roomState.roomId);
+          console.log("  Device ID:", roomState.deviceId);
+          console.log("  Device Count:", roomState.roomDeviceCount);
+          console.log(
+            "  Peer Connections:",
+            Array.from(roomState.roomPeerConnections.entries()).map(
+              ([id, pc]) => ({
+                deviceId: id,
+                state: pc.connectionState,
+                iceState: pc.iceConnectionState,
+              })
+            )
+          );
+          console.log(
+            "  Video Streams:",
+            Array.from(roomState.roomVideoStreams.keys())
+          );
+        },
+
+        triggerDiscovery: () => {
+          console.log("🔍 [MANUAL] Triggering peer discovery");
+          const roomVideoManager = window.enhancedRoomSystem?.roomVideoManager;
+          if (roomVideoManager) {
+            roomVideoManager.announceRoomPeer();
+          }
+        },
+
+        resetConnections: () => {
+          console.log("🔄 [MANUAL] Resetting all room connections");
+          roomState.roomPeerConnections.forEach((pc, deviceId) => {
+            console.log(`🔌 Closing connection to: ${deviceId}`);
+            pc.close();
+          });
+          roomState.roomPeerConnections.clear();
+          roomState.roomVideoStreams.clear();
+        },
+
+        testMessage: (type = "room-peer-joined") => {
+          console.log(`🧪 [TEST] Sending test message: ${type}`);
+          const success = frameLink.api.sendMessage({
+            type: type,
+            roomId: roomState.roomId,
+            deviceId: roomState.deviceId,
+            timestamp: Date.now(),
+          });
+          console.log(`📤 Message sent: ${success}`);
+        },
       },
     };
   }
