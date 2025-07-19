@@ -1876,7 +1876,15 @@ class RoomVideoManager {
       await peerConnection.setRemoteDescription(message.offer);
       console.log(`✅ Set remote description from ${fromDeviceId}`);
 
-      // DER FEHLERHAFTE BLOCK WURDE HIER ENTFERNT
+      const coreState = frameLink.api.getState();
+      if (coreState.localStream) {
+        coreState.localStream.getVideoTracks().forEach((track) => {
+          track.enabled = true;
+        });
+        console.log(
+          "✅ Answering Peer: Local video tracks enabled before creating answer."
+        );
+      }
 
       // Create and send answer
       const answer = await peerConnection.createAnswer();
