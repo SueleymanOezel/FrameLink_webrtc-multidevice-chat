@@ -365,28 +365,6 @@ function createPeerConnection(isForRoom = false) {
 async function startCall() {
   log("🚀 Starting call...");
 
-  // Room system integration - check if we're in a multi-device room
-  if (window.multiDeviceRoom?.isInRoom()) {
-    const roomDeviceCount =
-      window.multiDeviceRoom?.getConnectedDevices()?.length + 1 || 1;
-    const hasCamera = window.multiDeviceRoom?.hasCamera();
-
-    log(
-      `📱 Multi-device room detected: ${roomDeviceCount} devices, hasCamera: ${hasCamera}`
-    );
-
-    if (roomDeviceCount > 1) {
-      // Multi-device room logic
-      if (hasCamera) {
-        log("✅ Has camera control - starting call");
-      } else {
-        showStatus("⚠️ Need camera control to start call", "orange");
-        setTimeout(() => showStatus("Ready", "green"), 3000);
-        return;
-      }
-    }
-  }
-
   try {
     // Enable call control buttons
     toggleCameraBtn.disabled = false;
@@ -423,14 +401,6 @@ async function startCall() {
         offer: offer,
       })
     );
-
-    if (window.multiDeviceRoom && window.multiDeviceRoom.isInRoom()) {
-      frameLink.api.sendMessage({
-        type: "room-call-status-update",
-        roomId: window.multiDeviceRoom.roomId,
-        isActive: true,
-      });
-    }
 
     showStatus("Call started...", "blue");
     log("📤 Call offer sent");
@@ -486,14 +456,6 @@ async function handleOffer(message) {
         answer: answer,
       })
     );
-
-    if (window.multiDeviceRoom && window.multiDeviceRoom.isInRoom()) {
-      frameLink.api.sendMessage({
-        type: "room-call-status-update",
-        roomId: window.multiDeviceRoom.roomId,
-        isActive: true,
-      });
-    }
 
     showStatus("Incoming call accepted", "green");
     log("📤 Answer sent");
@@ -641,7 +603,20 @@ window.addEventListener("load", async () => {
 function setupUI() {
   // Main call button
   if (startBtn) {
-    startBtn.addEventListener("click", startCall);
+    if (startBtn) {
+      startBtn.addEventListener("click", () => {
+        if (
+          window.enhancedRoomSystem &&
+          window.enhancedRoomSystem.roomManager
+        ) {
+          // Rufe die neue, intelligente Funktion auf
+          window.enhancedRoomSystem.roomManager.startExternalCall();
+        } else {
+          // Fallback für den Fall, dass das Raum-System nicht geladen ist
+          startCall();
+        }
+      });
+    }
   }
 
   // Camera toggle

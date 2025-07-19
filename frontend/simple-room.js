@@ -739,6 +739,27 @@ class RoomManager {
       updateCameraStatus("❌ Camera Error", "red");
     }
   }
+
+  startExternalCall() {
+    if (!roomState.inRoom) {
+      // Wenn nicht im Raum, führe einen normalen Anruf aus
+      frameLink.api.startCall();
+      return;
+    }
+
+    frameLink.log("🚀 Initiating EXTERNAL ROOM CALL...");
+
+    // Schritt 1: Bestimme, wer der initiale Master ist (das Gerät, das klickt)
+    roomState.callMasterId = roomState.deviceId;
+
+    // Schritt 2: Starte den WebRTC-Anruf NUR auf dem Master-Gerät
+    frameLink.api.startCall();
+
+    // Schritt 3: Sende die "LIVE"-Nachricht, sobald die Verbindung steht
+    // (Dieser Teil ist bereits in unserer neuen app.js-Logik enthalten)
+
+    this.updateCallStatusInternal("📞 External Call wird gestartet...");
+  }
 }
 
 // ================================================================
