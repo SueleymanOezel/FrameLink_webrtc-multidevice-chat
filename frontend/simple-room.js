@@ -786,6 +786,18 @@ class RoomMessageHandler {
     this.messageCache = new Map();
     this.roomVideoManager = roomVideoManager;
     this.setupMessageHandling();
+
+    // =========================================================
+    // NEU: Auf das Event aus Schritt 1 hören
+    // =========================================================
+    frameLink.events.addEventListener("request-camera-activation", (event) => {
+      frameLink.log(`✅ Received camera activation request`, event.detail);
+      // Prüfen, ob die Anfrage für mich ist
+      if (event.detail.deviceId === roomState.deviceId) {
+        this.activateCameraControl(); // Die korrekte Funktion in dieser Klasse aufrufen
+      }
+    });
+    // =========================================================
   }
 
   setupMessageHandling() {
@@ -2331,15 +2343,24 @@ class RoomVideoManager {
       window.autoCameraSwitching &&
       !window.autoCameraSwitching.currentControllingDevice
     ) {
-      // Prüfe ob ich Face Detection habe
       const myFaceState = roomState.faceDetectionStates.get(roomState.deviceId);
       if (myFaceState?.hasFace && myFaceState?.confidence > 0.7) {
         frameLink.log(
-          "🎯 Setting myself as initial camera controller (face detected)"
+          "🎯 Requesting to be initial camera controller (face detected)"
         );
-        window.autoCameraSwitching.currentControllingDevice =
-          roomState.deviceId;
-        this.activateCameraControl();
+
+        // =========================================================
+        // NEU: Ein Event senden, statt eine fremde Funktion aufzurufen
+        // =========================================================
+        frameLink.events.dispatchEvent(
+          new CustomEvent("request-camera-activation", {
+            detail: {
+              deviceId: roomState.deviceId,
+              reason: "initial-controller-face-detected",
+            },
+          })
+        );
+        // =========================================================
       }
     }
   }
