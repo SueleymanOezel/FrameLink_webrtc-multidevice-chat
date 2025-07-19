@@ -109,20 +109,67 @@ wss.on("connection", (ws, req) => {
 
       switch (msg.type) {
         case "request-room-peers":
+          console.log(
+            `🔍 [ROOM-DEBUG] Peer request from ${ws.deviceId} in room ${msg.roomId}`
+          );
+
           if (ws.roomId && rooms.has(ws.roomId)) {
-            const devices = Array.from(rooms.get(ws.roomId)).map((c) => ({
+            const roomClients = Array.from(rooms.get(ws.roomId));
+            const devices = roomClients.map((c) => ({
               deviceId: c.deviceId,
             }));
-            ws.send(
-              JSON.stringify({
-                type: "room-update",
-                roomId: ws.roomId,
-                devices,
-              })
+
+            console.log(
+              `📋 [ROOM-DEBUG] Room ${msg.roomId} has ${devices.length} devices:`,
+              devices.map((d) => d.deviceId)
+            );
+
+            // Send room-update to requesting client
+            const roomUpdate = {
+              type: "room-update",
+              roomId: ws.roomId,
+              devices,
+              timestamp: Date.now(),
+            };
+
+            ws.send(JSON.stringify(roomUpdate));
+            console.log(
+              `📤 [ROOM-DEBUG] Sent room-update to ${ws.deviceId}:`,
+              devices.length,
+              "devices"
+            );
+
+            // 🔴 CRITICAL: Also send room-peer-joined for each OTHER device
+            devices.forEach((device) => {
+              if (device.deviceId !== ws.deviceId) {
+                const peerJoinedMessage = {
+                  type: "room-peer-joined",
+                  roomId: ws.roomId,
+                  deviceId: device.deviceId,
+                  timestamp: Date.now(),
+                };
+
+                ws.send(JSON.stringify(peerJoinedMessage));
+                console.log(
+                  `📤 [ROOM-DEBUG] Sent room-peer-joined to ${ws.deviceId} about ${device.deviceId}`
+                );
+              }
+            });
+          } else {
+            console.log(
+              `❌ [ROOM-DEBUG] Room ${msg.roomId} not found or client not in room`
             );
           }
           break;
         case "join-room":
+          console.log(`🚪 [ROOM-DEBUG] Join room request:`, {
+            roomId: msg.roomId,
+            deviceId: msg.deviceId,
+            currentDevices: rooms.has(msg.roomId)
+              ? rooms.get(msg.roomId).size
+              : 0,
+          });
+
           // Client tritt lokalem Multi-Device Room bei
           ws.roomId = msg.roomId;
           ws.deviceId = msg.deviceId;
@@ -130,21 +177,46 @@ wss.on("connection", (ws, req) => {
 
           if (!rooms.has(msg.roomId)) {
             rooms.set(msg.roomId, new Set());
+            console.log(`🏗️ [ROOM-DEBUG] Created new room: ${msg.roomId}`);
           }
-          rooms.get(msg.roomId).add(ws);
+
+          const roomSet = rooms.get(msg.roomId);
+          roomSet.add(ws);
 
           console.log(
-            `✅ ${msg.deviceId} joined room ${msg.roomId} (${rooms.get(msg.roomId).size} devices)`
+            `✅ [ROOM-DEBUG] ${msg.deviceId} joined room ${msg.roomId} (${roomSet.size} devices total)`
           );
 
-          // Room update an alle im lokalen Room
-          broadcastToRoom(msg.roomId, {
+          // Get all devices in room
+          const allDevices = Array.from(roomSet).map((c) => ({
+            deviceId: c.deviceId,
+          }));
+
+          // Send room-update to ALL clients in room
+          const roomUpdateMessage = {
             type: "room-update",
             roomId: msg.roomId,
-            devices: Array.from(rooms.get(msg.roomId)).map((c) => ({
-              deviceId: c.deviceId,
-            })),
-          });
+            devices: allDevices,
+            timestamp: Date.now(),
+          };
+
+          broadcastToRoom(msg.roomId, roomUpdateMessage);
+          console.log(
+            `📤 [ROOM-DEBUG] Broadcasted room-update to ${roomSet.size} devices`
+          );
+
+          // 🔴 CRITICAL: Send room-peer-joined to all OTHER devices about this new device
+          const peerJoinedMessage = {
+            type: "room-peer-joined",
+            roomId: msg.roomId,
+            deviceId: msg.deviceId,
+            timestamp: Date.now(),
+          };
+
+          broadcastToRoom(msg.roomId, peerJoinedMessage, ws);
+          console.log(
+            `📤 [ROOM-DEBUG] Broadcasted room-peer-joined about ${msg.deviceId} to other devices`
+          );
           break;
 
         case "camera-request":
@@ -274,15 +346,34 @@ wss.on("connection", (ws, req) => {
 
 // An alle in einem lokalen Room senden
 function broadcastToRoom(roomId, message, sender = null) {
-  if (!rooms.has(roomId)) return;
+  if (!rooms.has(roomId)) {
+    console.log(
+      `⚠️ [ROOM-DEBUG] Cannot broadcast to room ${roomId} - room not found`
+    );
+    return;
+  }
 
+  const roomClients = rooms.get(roomId);
   const msgString = JSON.stringify(message);
-  rooms.get(roomId).forEach((client) => {
+  let sentCount = 0;
+
+  roomClients.forEach((client) => {
     if (client !== sender && client.readyState === WebSocket.OPEN) {
-      client.send(msgString);
+      try {
+        client.send(msgString);
+        sentCount++;
+      } catch (error) {
+        console.log(
+          `❌ [ROOM-DEBUG] Failed to send to ${client.deviceId}:`,
+          error.message
+        );
+      }
     }
   });
-  console.log(`Broadcast to room ${roomId}: ${message.type}`);
+
+  console.log(
+    `📡 [ROOM-DEBUG] Broadcast ${message.type} to room ${roomId}: ${sentCount}/${roomClients.size} clients`
+  );
 }
 
 // An alle Clients senden (für externe Video-Calls)
