@@ -1774,34 +1774,48 @@ class RoomVideoManager {
     frameLink.log(`🔗 Assigned local video device IDs: ${roomState.deviceId}`);
   }
 
+  // DIES IST DER NEUE, KORRIGIERTE CODE
   async handlePeerJoined(message) {
     const remoteDeviceId = message.deviceId;
     if (remoteDeviceId === roomState.deviceId) {
-      frameLink.log(`⭕ Ignoring self-announcement: ${remoteDeviceId}`);
+      // Ignoriere die Ankündigung von uns selbst.
       return;
     }
 
-    console.log(`🔧 [PHASE3-FIX] Handling peer joined: ${remoteDeviceId}`);
+    console.log(`[FIX] Peer Joined: ${remoteDeviceId}. Prüfe Verbindung.`);
 
-    // 🔴 ERWEITERTE CONNECTION PRÜFUNG
+    // Prüfe, ob bereits eine Verbindung existiert oder aufgebaut wird.
     if (roomState.roomPeerConnections.has(remoteDeviceId)) {
       const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
       const state = existingPc.connectionState;
 
-      console.log(`🔍 Existing connection to ${remoteDeviceId}: ${state}`);
+      if (state === "connected" || state === "connecting") {
+        frameLink.log(
+          `✅ Verbindung zu ${remoteDeviceId} existiert bereits (${state}).`
+        );
+        return; // Nichts weiter tun.
+      }
 
-      if (state === "connected") {
-        frameLink.log(`✅ Already connected to: ${remoteDeviceId}`);
-        return;
-      } else if (state === "connecting") {
-        frameLink.log(`⏳ Already connecting to: ${remoteDeviceId}`);
-        return;
-      } else {
-        console.log(`🧹 Cleaning up failed connection: ${state}`);
+      // Wenn die Verbindung fehlgeschlagen ist, räume sie vorher auf.
+      if (
+        state === "failed" ||
+        state === "disconnected" ||
+        state === "closed"
+      ) {
+        console.log(
+          `🧹 Alte, defekte Verbindung zu ${remoteDeviceId} wird aufgeräumt.`
+        );
         existingPc.close();
         roomState.roomPeerConnections.delete(remoteDeviceId);
       }
     }
+
+    // Wenn keine aktive Verbindung besteht, starte den Verbindungsprozess,
+    // indem wir ein Angebot (Offer) erstellen und senden.
+    frameLink.log(
+      `🚀 Starte aggressive Verbindungsaufnahme zu: ${remoteDeviceId}`
+    );
+    this.createAggressiveRoomOffer(remoteDeviceId);
   }
 
   verifyRoomVideoStream(deviceId, peerConnection) {
