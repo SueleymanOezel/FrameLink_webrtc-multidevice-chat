@@ -2031,13 +2031,29 @@ class RoomVideoManager {
   }
 
   setupRoomPeerConnectionHandlers(peerConnection, remoteDeviceId) {
+    // =========================================================
+    // HIER KOMMT DER NEUE, KORRIGIERTE CODE HIN
+    // =========================================================
     // Handle remote streams
     peerConnection.ontrack = (event) => {
-      frameLink.log(`📹 Room video stream received from: ${remoteDeviceId}`);
-      const remoteStream = event.streams[0];
+      frameLink.log(`📹 Track received from: ${remoteDeviceId}`, event.track);
+
+      // Versuche zuerst die alte Methode (für Kompatibilität)
+      let remoteStream = event.streams[0];
+
+      // Die neue, robuste Methode: Wenn das streams-Array leer ist,
+      // erstelle einen neuen Stream aus dem einzelnen Track.
+      if (!remoteStream && event.track) {
+        remoteStream = new MediaStream();
+        remoteStream.addTrack(event.track);
+        console.log("✅ Created new MediaStream from received track.");
+      }
+
       if (remoteStream) {
         roomState.roomVideoStreams.set(remoteDeviceId, remoteStream);
         this.addRoomVideoToUI(remoteDeviceId, remoteStream);
+      } else {
+        frameLink.log(`❌ No stream or track received from ${remoteDeviceId}`);
       }
     };
 
