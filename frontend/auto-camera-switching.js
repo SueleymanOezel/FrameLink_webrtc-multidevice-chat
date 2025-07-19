@@ -57,7 +57,6 @@
       logDebug(`🎯 Auto-assigning initial camera control to: ${deviceId}`);
       autoCameraSwitching.currentControllingDevice = deviceId;
 
-      // Trigger camera request
       executeIntegratedCameraSwitch(deviceId, {
         reason: "initial-face-detection",
         confidence,

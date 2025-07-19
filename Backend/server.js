@@ -181,21 +181,25 @@ wss.on("connection", (ws, req) => {
         case "offer":
         case "answer":
         case "ice":
-          console.log(`🔄 WebRTC ${msg.type} - Processing...`);
+          // **WICHTIG:** Unterscheidung zwischen lokalem Room und externem Video-Chat
 
-          // 🔴 CRITICAL: Determine if this is room WebRTC or external WebRTC
-          if (msg.roomId && msg.toDeviceId && msg.fromDeviceId) {
-            // Room WebRTC (specific device-to-device communication)
-            broadcastToRoom(msg.roomId, msg, ws);
-            console.log(
-              `📡 Room WebRTC ${msg.type}: ${msg.fromDeviceId} → ${msg.toDeviceId}`
-            );
+          if (
+            ws.inLocalRoom &&
+            msg.roomId &&
+            msg.toDeviceId &&
+            msg.fromDeviceId
+          ) {
+            // Das ist ein WebRTC Call INNERHALB eines lokalen Multi-Device Rooms
+            // -> An andere Geräte im gleichen lokalen Room weiterleiten
+            broadcastToRoom(ws.roomId, msg, ws);
+            console.log(`WebRTC in local room ${ws.roomId}: ${msg.type}`);
           } else {
-            // External WebRTC - broadcast to everyone EXCEPT room members
+            // Das ist ein normaler Video-Chat Call zwischen verschiedenen Personen
+            // -> An ALLE anderen Clients weiterleiten (alte Funktionsweise)
             console.log(
-              `📡 External WebRTC: ${msg.type} from room ${ws.roomId || "none"}`
+              `External WebRTC call: ${msg.type} from ${ws.inLocalRoom ? "room-client" : "external-client"}`
             );
-            broadcastExcludingRoom(msg, ws);
+            broadcast(msg, ws); // ✅ LÖSUNG: Sendet an alle Clients
           }
           break;
 
@@ -268,54 +272,35 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-// An alle Clients AUSSER Room-Mitglieder senden
-function broadcastExcludingRoom(message, sender) {
-  const msgString = JSON.stringify(message);
-  let successCount = 0;
-  let errorCount = 0;
-  const senderRoomId = sender.roomId;
+// An alle in einem lokalen Room senden
+function broadcastToRoom(roomId, message, sender = null) {
+  if (!rooms.has(roomId)) return;
 
-  wss.clients.forEach((client) => {
-    if (
-      client !== sender &&
-      client.readyState === WebSocket.OPEN &&
-      (!senderRoomId || !client.roomId || client.roomId !== senderRoomId)
-    ) {
-      try {
-        client.send(msgString);
-        successCount++;
-      } catch (error) {
-        console.error("Broadcast error:", error.message);
-        errorCount++;
-      }
+  const msgString = JSON.stringify(message);
+  rooms.get(roomId).forEach((client) => {
+    if (client !== sender && client.readyState === WebSocket.OPEN) {
+      client.send(msgString);
     }
   });
-
-  console.log(
-    `📡 External broadcast (excluding room ${senderRoomId}): ${message.type} - success: ${successCount}, errors: ${errorCount}`
-  );
+  console.log(`Broadcast to room ${roomId}: ${message.type}`);
 }
 
 // An alle Clients senden (für externe Video-Calls)
 function broadcast(message, sender) {
   const msgString = JSON.stringify(message);
-  let successCount = 0;
-  let errorCount = 0;
+  let count = 0;
 
   wss.clients.forEach((client) => {
     if (client !== sender && client.readyState === WebSocket.OPEN) {
-      try {
-        client.send(msgString);
-        successCount++;
-      } catch (error) {
-        console.error("Broadcast error:", error.message);
-        errorCount++;
-      }
+      // ✅ An ALLE Clients senden - auch die in lokalen Rooms
+      // Die Client-seitige Logik entscheidet was zu tun ist
+      client.send(msgString);
+      count++;
     }
   });
 
   console.log(
-    `📡 Global broadcast: ${message.type} - success: ${successCount}, errors: ${errorCount}`
+    `External broadcast: ${message.type} to ${count} clients (including room clients)`
   );
 }
 
@@ -331,17 +316,15 @@ server.listen(PORT, HOST, () => {
 
   // Status Log für fly.io
   setInterval(() => {
-    const stats = {
-      totalClients: wss.clients.size,
-      localRoomClients: Array.from(wss.clients).filter((c) => c.inLocalRoom)
-        .length,
-      externalClients: Array.from(wss.clients).filter((c) => !c.inLocalRoom)
-        .length,
-      totalRooms: rooms.size,
-      uptime: process.uptime(),
-    };
-
-    console.log(`📊 Server Stats:`, stats);
+    const localRoomClients = Array.from(wss.clients).filter(
+      (c) => c.inLocalRoom
+    ).length;
+    const externalClients = Array.from(wss.clients).filter(
+      (c) => !c.inLocalRoom
+    ).length;
+    console.log(
+      `📊 Status: ${wss.clients.size} total clients (${localRoomClients} in rooms, ${externalClients} external), ${rooms.size} local rooms`
+    );
   }, 60000);
 });
 

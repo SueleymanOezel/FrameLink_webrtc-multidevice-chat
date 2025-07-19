@@ -3,6 +3,25 @@
 
 console.log("🔧 FLY.IO WebSocket Debug & Fix wird geladen...");
 
+// 🛡️ ALT: WebSocket wait + Emergency‑Fallback
+function waitForWebSocket(callback, maxRetries = 20, interval = 250) {
+  let tries = 0;
+  const timer = setInterval(() => {
+    if (window.socket && window.socket.readyState === WebSocket.OPEN) {
+      clearInterval(timer);
+      callback();
+    } else if (++tries >= maxRetries) {
+      clearInterval(timer);
+      createEmergencyWebSocket();
+    }
+  }, interval);
+}
+
+function createEmergencyWebSocket() {
+  console.warn("[EmergencyWS] creating fallback socket");
+  window.socket = new WebSocket("wss://dein‑fallback.example.com");
+}
+
 // ================================================================
 // FLY.IO WEBSOCKET CONNECTION FIXER
 // ================================================================
@@ -461,6 +480,9 @@ window.debugFlyIO = {
     }
   },
 };
+
+window.waitForWebSocket = waitForWebSocket;
+window.createEmergencyWebSocket = createEmergencyWebSocket;
 
 console.log("✅ FLY.IO WebSocket Debug & Fix loaded");
 console.log(
