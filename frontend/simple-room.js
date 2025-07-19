@@ -778,39 +778,6 @@ function updateCallStatus(message) {
 }
 
 // ================================================================
-// 🛡️ ROOM VIDEO STREAM PROTECTION - VERHINDERT SCHWARZE BILDSCHIRME
-// ================================================================
-
-// Stelle sicher dass Room-Videos IMMER aktiv bleiben
-function ensureRoomVideosStayActive() {
-  // Room Videos dürfen NIEMALS deaktiviert werden
-  const localRoomVideo = document.getElementById("localRoomVideo");
-  if (localRoomVideo && localRoomVideo.srcObject) {
-    localRoomVideo.srcObject.getVideoTracks().forEach((track) => {
-      track.enabled = true; // IMMER aktiv
-    });
-  }
-
-  // Setze auch opacity/visibility zurück falls versteckt
-  if (localRoomVideo) {
-    localRoomVideo.style.opacity = "1";
-    localRoomVideo.style.visibility = "visible";
-    localRoomVideo.style.display = "block";
-  }
-
-  // Prüfe auch alle anderen Room-Videos
-  document.querySelectorAll(".room-video").forEach((video) => {
-    if (video.srcObject) {
-      video.srcObject.getVideoTracks().forEach((track) => {
-        track.enabled = true;
-      });
-      video.style.opacity = "1";
-      video.style.visibility = "visible";
-    }
-  });
-}
-
-// ================================================================
 // 📨 ROOM MESSAGE HANDLING
 // ================================================================
 
