@@ -316,13 +316,25 @@ function createPeerConnection(isForRoom = false) {
 
   newPc.onconnectionstatechange = () => {
     const state = newPc.connectionState;
-    // Logge nur, wenn es sich nicht um eine stille Raum-Verbindung handelt
     if (!isForRoom) {
       frameLink.log(`🔗 Connection state: ${state}`);
       showStatus(`Connection: ${state}`, "blue");
     }
     if (state === "connected" && !isForRoom) {
       frameLink.log("🎉 WebRTC connection successful!");
+
+      // =========================================================
+      // NEU: Sende den Status erst, wenn die Verbindung steht.
+      // =========================================================
+      if (window.multiDeviceRoom && window.multiDeviceRoom.isInRoom()) {
+        frameLink.api.sendMessage({
+          type: "room-call-status-update",
+          roomId: window.multiDeviceRoom.roomId,
+          isActive: true,
+          masterDeviceId: window.multiDeviceRoom.deviceId, // Gib bekannt, wer der Master ist
+        });
+      }
+      // =========================================================
     }
   };
 

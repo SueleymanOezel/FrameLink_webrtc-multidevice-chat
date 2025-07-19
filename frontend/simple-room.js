@@ -853,8 +853,14 @@ class RoomMessageHandler {
     switch (type) {
       case "room-call-status-update":
         roomState.callActiveWithExternal = message.isActive;
+        // NEU: Speichere die ID des Masters
+        if (message.isActive) {
+          roomState.callMasterId = message.masterDeviceId;
+        } else {
+          roomState.callMasterId = null;
+        }
         frameLink.log(
-          `📞 External call status updated to: ${message.isActive}`
+          `📞 External call status: ${message.isActive}, Master: ${roomState.callMasterId}`
         );
         updateCallStatus(
           message.isActive ? "📞 External Call Active" : "📞 Call Ended"
@@ -932,57 +938,76 @@ class RoomMessageHandler {
   async handleCameraSwitch(message) {
     const targetDeviceId = message.deviceId;
     const myDeviceId = roomState.deviceId;
-
     frameLink.log(
-      `📹 Camera switch event: target=${targetDeviceId}, me=${myDeviceId}`
+      `📹 Camera switch request received. Target: ${targetDeviceId}`
     );
 
-    // Schritt 1: Aktualisiere IMMER den internen Zustand und die UI.
-    const iAmNowController = targetDeviceId === myDeviceId;
-    roomState.hasCamera = iAmNowController;
-    roomState.amCurrentCameraMaster = iAmNowController;
-
+    // Schritt 1: JEDES Gerät aktualisiert seinen UI-Status.
+    const iAmTheNewController = targetDeviceId === myDeviceId;
+    roomState.hasCamera = iAmTheNewController;
     updateCameraStatus(
-      iAmNowController
+      iAmTheNewController
         ? "📹 CAMERA CONTROL ACTIVE"
         : `⏸️ ${targetDeviceId} has camera`,
-      iAmNowController ? "green" : "gray"
+      iAmTheNewController ? "green" : "gray"
     );
 
-    // Schritt 2: Führe die WebRTC-Aktion (replaceTrack) NUR aus, wenn ein Anruf aktiv ist.
-    const externalCall = frameLink.api.getState().currentCall;
-    if (roomState.callActiveWithExternal && externalCall) {
-      const videoSender = externalCall
-        .getSenders()
-        .find((s) => s.track?.kind === "video");
-      if (!videoSender) {
-        frameLink.log(
-          "❌ Cannot switch: No video sender found in external call."
-        );
-        return;
-      }
+    // Schritt 2: NUR der "Master" führt die komplexe WebRTC-Aktion aus.
+    if (roomState.callMasterId !== myDeviceId) {
+      frameLink.log(
+        `ℹ️ Ich bin nicht der Call Master (${roomState.callMasterId}), ich ändere nur die UI.`
+      );
+      return;
+    }
 
-      if (iAmNowController) {
-        // ICH ÜBERNEHME
-        const localStream = frameLink.api.getState().localStream;
-        if (localStream && localStream.getVideoTracks().length > 0) {
-          const videoTrack = localStream.getVideoTracks()[0];
-          frameLink.log(
-            `✅ Replacing external call track with my local video track.`
-          );
-          await videoSender.replaceTrack(videoTrack);
-        }
-      } else {
-        // ICH GEBE AB
-        frameLink.log(
-          `✅ Stopping my video track for external call (setting to null).`
-        );
-        await videoSender.replaceTrack(null);
-      }
+    frameLink.log(
+      `👑 Ich bin der Call Master und führe den Stream-Wechsel durch.`
+    );
+
+    const externalCall = frameLink.api.getState().currentCall;
+    if (!externalCall) {
+      frameLink.log("❌ Master Error: External call object not found.");
+      return;
+    }
+
+    const videoSender = externalCall
+      .getSenders()
+      .find((s) => s.track?.kind === "video");
+    if (!videoSender) {
+      frameLink.log("❌ Master Error: No video sender on external call.");
+      return;
+    }
+
+    let newVideoTrack = null;
+
+    if (targetDeviceId === myDeviceId) {
+      // Fall A: Der Master selbst wird zum Controller. Er benutzt seinen eigenen lokalen Stream.
+      const localStream = frameLink.api.getState().localStream;
+      newVideoTrack = localStream?.getVideoTracks()[0];
+      frameLink.log("✅ Master is new controller, using own local track.");
+    } else {
+      // Fall B: Ein anderes Gerät wird Controller. Der Master muss dessen Stream aus der Raum-Verbindung holen.
+      const roomConnectionToTarget =
+        roomState.roomPeerConnections.get(targetDeviceId);
+      const receiver = roomConnectionToTarget
+        ?.getReceivers()
+        .find((r) => r.track?.kind === "video");
+      newVideoTrack = receiver?.track;
+      frameLink.log(
+        `✅ Master is switching to track from room peer ${targetDeviceId}.`
+      );
+    }
+
+    if (newVideoTrack) {
+      await videoSender.replaceTrack(newVideoTrack);
+      frameLink.log(
+        `🎉 [BRIDGE] External stream successfully switched to ${targetDeviceId}!`
+      );
     } else {
       frameLink.log(
-        "ℹ️ No active external call, only updating UI state for camera control."
+        `❌ [BRIDGE] Could not find video track for ${targetDeviceId}. Sending black screen.`
       );
+      await videoSender.replaceTrack(null);
     }
   }
 
@@ -1796,45 +1821,30 @@ class RoomVideoManager {
   // DIES IST DER NEUE, KORRIGIERTE CODE
   async handlePeerJoined(message) {
     const remoteDeviceId = message.deviceId;
-    if (remoteDeviceId === roomState.deviceId) {
-      // Ignoriere die Ankündigung von uns selbst.
-      return;
+    if (remoteDeviceId === roomState.deviceId) return;
+
+    // Prüfe, ob schon eine stabile Verbindung existiert
+    const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
+    if (
+      existingPc &&
+      (existingPc.connectionState === "connected" ||
+        existingPc.connectionState === "connecting")
+    ) {
+      return; // Verbindung existiert schon, nichts tun.
     }
 
-    console.log(`[FIX] Peer Joined: ${remoteDeviceId}. Prüfe Verbindung.`);
-
-    // Prüfe, ob bereits eine Verbindung existiert oder aufgebaut wird.
-    if (roomState.roomPeerConnections.has(remoteDeviceId)) {
-      const existingPc = roomState.roomPeerConnections.get(remoteDeviceId);
-      const state = existingPc.connectionState;
-
-      if (state === "connected" || state === "connecting") {
-        frameLink.log(
-          `✅ Verbindung zu ${remoteDeviceId} existiert bereits (${state}).`
-        );
-        return; // Nichts weiter tun.
-      }
-
-      // Wenn die Verbindung fehlgeschlagen ist, räume sie vorher auf.
-      if (
-        state === "failed" ||
-        state === "disconnected" ||
-        state === "closed"
-      ) {
-        console.log(
-          `🧹 Alte, defekte Verbindung zu ${remoteDeviceId} wird aufgeräumt.`
-        );
-        existingPc.close();
-        roomState.roomPeerConnections.delete(remoteDeviceId);
-      }
+    // Regel: Das Gerät mit der "kleineren" ID sendet immer das Angebot.
+    // Das verhindert Konflikte und Endlosschleifen.
+    if (roomState.deviceId < remoteDeviceId) {
+      frameLink.log(
+        `[STABLE-CONNECT] Meine ID ist kleiner, ich sende Offer an ${remoteDeviceId}`
+      );
+      this.createAggressiveRoomOffer(remoteDeviceId);
+    } else {
+      frameLink.log(
+        `[STABLE-CONNECT] Meine ID ist größer, ich warte auf Offer von ${remoteDeviceId}`
+      );
     }
-
-    // Wenn keine aktive Verbindung besteht, starte den Verbindungsprozess,
-    // indem wir ein Angebot (Offer) erstellen und senden.
-    frameLink.log(
-      `🚀 Starte aggressive Verbindungsaufnahme zu: ${remoteDeviceId}`
-    );
-    this.createAggressiveRoomOffer(remoteDeviceId);
   }
 
   verifyRoomVideoStream(deviceId, peerConnection) {
