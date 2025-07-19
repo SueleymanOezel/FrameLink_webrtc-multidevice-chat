@@ -923,62 +923,73 @@ class RoomMessageHandler {
   async handleCameraSwitch(message) {
     const targetDeviceId = message.deviceId;
     const myDeviceId = roomState.deviceId;
+    const externalCall = frameLink.api.getState().currentCall;
 
     frameLink.log(
-      `📹 Camera switch: target=${targetDeviceId}, me=${myDeviceId}`
+      `📹 Camera switch event: target=${targetDeviceId}, me=${myDeviceId}`
     );
 
-    const iWasController =
-      roomState.hasCamera && roomState.amCurrentCameraMaster;
-
-    // 🛡️ WICHTIG: Room-Videos bleiben IMMER aktiv
-    ensureRoomVideosStayActive();
+    // Nur fortfahren, wenn ein externer Anruf aktiv ist
+    if (!roomState.callActiveWithExternal || !externalCall) {
+      frameLink.log("ℹ️ Camera switch ignored, no active external call.");
+      // Nur den UI-Status für die Kamerakontrolle aktualisieren
+      updateCameraStatus(
+        targetDeviceId === myDeviceId
+          ? "📹 CAMERA CONTROL ACTIVE"
+          : `⏸️ ${targetDeviceId} has camera`,
+        targetDeviceId === myDeviceId ? "green" : "gray"
+      );
+      return;
+    }
 
     if (targetDeviceId === myDeviceId) {
-      // ✅ Ich übernehme die Kamera
+      // =========================================================
+      // ICH ÜBERNEHME DIE KONTROLLE
+      // =========================================================
       roomState.hasCamera = true;
       roomState.amCurrentCameraMaster = true;
 
-      // Stelle sicher, dass localStream aktiv ist
-      await this.ensureLocalStreamActive();
+      const localStream = frameLink.api.getState().localStream;
+      if (localStream && localStream.getVideoTracks().length > 0) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        const videoSender = externalCall
+          .getSenders()
+          .find((s) => s.track?.kind === "video");
 
-      // Aktiviere NUR für externe Calls, nicht für Room-Videos
-      if (frameLink.core.localStream) {
-        frameLink.core.localStream.getVideoTracks().forEach((track) => {
-          track.enabled = true;
-        });
+        if (videoSender) {
+          frameLink.log(
+            `✅ Replacing external call track with my local video track.`
+          );
+          await videoSender.replaceTrack(videoTrack);
+        }
       }
-
-      // Wenn externes Call aktiv ist, ersetze Track
-      if (roomState.callActiveWithExternal && frameLink.core.currentCall) {
-        await this.replaceExternalCallTracks();
-      }
-
       updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
     } else {
-      // ❌ Ein anderes Gerät übernimmt
+      // =========================================================
+      // EIN ANDERES GERÄT ÜBERNIMMT
+      // =========================================================
       roomState.hasCamera = false;
       roomState.amCurrentCameraMaster = false;
 
-      // NUR externe Call-Tracks deaktivieren
-      if (roomState.callActiveWithExternal && frameLink.core.currentCall) {
-        const pc = frameLink.core.currentCall;
-        pc.getSenders().forEach((sender) => {
-          if (sender.track && sender.track.kind === "video") {
-            sender.track.enabled = false;
-          }
-        });
+      const videoSender = externalCall
+        .getSenders()
+        .find((s) => s.track?.kind === "video");
+      if (videoSender) {
+        frameLink.log(
+          `✅ Stopping my video track for external call (setting to null).`
+        );
+        await videoSender.replaceTrack(null);
       }
-
       updateCameraStatus(`⏸️ ${targetDeviceId} has camera`, "gray");
     }
 
-    // 🛡️ WICHTIG: Nach jedem Switch Room-Videos prüfen
-    ensureRoomVideosStayActive();
-
-    // Update UI
-    this.updateExternalCallController(targetDeviceId);
+    // WICHTIG: Stelle sicher, dass die Raum-Videos davon unberührt bleiben
+    // (Diese Funktion sollte bereits in deinem Code existieren)
+    if (typeof ensureRoomVideosStayActive === "function") {
+      ensureRoomVideosStayActive();
+    }
   }
+
   async replaceExternalCallTracks() {
     const pc = frameLink.core.currentCall;
     const stream = frameLink.core.localStream;
