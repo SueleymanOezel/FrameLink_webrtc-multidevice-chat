@@ -1675,6 +1675,31 @@ class RoomMessageHandler {
 // ================================================================
 
 class RoomVideoManager {
+  createRoomOnlyPeerConnection(remoteDeviceId) {
+    frameLink.log(
+      `🏠 Creating ROOM-ONLY peer connection to: ${remoteDeviceId}`
+    );
+
+    const config = {
+      iceServers: frameLink.api.getTurnConfig().iceServers,
+      iceTransportPolicy: "all",
+    };
+
+    const roomPc = new RTCPeerConnection(config);
+
+    // WICHTIG: Füge den lokalen Stream zu DIESER Verbindung hinzu
+    const coreState = frameLink.api.getState();
+    if (coreState.localStream) {
+      coreState.localStream.getTracks().forEach((track) => {
+        roomPc.addTrack(track, coreState.localStream);
+      });
+    }
+
+    // Die Event-Handler werden in `setupRoomPeerConnectionHandlers` hinzugefügt,
+    // also brauchen wir sie hier nicht.
+
+    return roomPc;
+  }
   constructor() {
     this.setupRoomVideo();
     this.peerDiscoveryTimeout = 5000; // 5 seconds for peer discovery
@@ -1890,7 +1915,7 @@ class RoomVideoManager {
       }
 
       // Create fresh peer connection. Diese Funktion fügt die Tracks bereits hinzu.
-      peerConnection = frameLink.api.createPeerConnection();
+      peerConnection = this.createRoomOnlyPeerConnection(fromDeviceId);
       roomState.roomPeerConnections.set(fromDeviceId, peerConnection);
 
       this.setupRoomPeerConnectionHandlers(peerConnection, fromDeviceId);
@@ -1980,7 +2005,7 @@ class RoomVideoManager {
     try {
       // Create peer connection using frameLink API.
       // Die Funktion in app.js fügt die Tracks bereits hinzu.
-      const peerConnection = frameLink.api.createPeerConnection();
+      const peerConnection = this.createRoomOnlyPeerConnection(remoteDeviceId);
       roomState.roomPeerConnections.set(remoteDeviceId, peerConnection);
 
       // Setup handlers FIRST
