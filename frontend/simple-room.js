@@ -851,6 +851,15 @@ class RoomMessageHandler {
     frameLink.log(`📨 Room message: ${type}`, message);
 
     switch (type) {
+      case "room-call-status-update":
+        roomState.callActiveWithExternal = message.isActive;
+        frameLink.log(
+          `📞 External call status updated to: ${message.isActive}`
+        );
+        updateCallStatus(
+          message.isActive ? "📞 External Call Active" : "📞 Call Ended"
+        );
+        break;
       case "camera-request":
         this.handleCameraSwitch(message);
         break;
@@ -923,70 +932,57 @@ class RoomMessageHandler {
   async handleCameraSwitch(message) {
     const targetDeviceId = message.deviceId;
     const myDeviceId = roomState.deviceId;
-    const externalCall = frameLink.api.getState().currentCall;
 
     frameLink.log(
       `📹 Camera switch event: target=${targetDeviceId}, me=${myDeviceId}`
     );
 
-    // Nur fortfahren, wenn ein externer Anruf aktiv ist
-    if (!roomState.callActiveWithExternal || !externalCall) {
-      frameLink.log("ℹ️ Camera switch ignored, no active external call.");
-      // Nur den UI-Status für die Kamerakontrolle aktualisieren
-      updateCameraStatus(
-        targetDeviceId === myDeviceId
-          ? "📹 CAMERA CONTROL ACTIVE"
-          : `⏸️ ${targetDeviceId} has camera`,
-        targetDeviceId === myDeviceId ? "green" : "gray"
-      );
-      return;
-    }
+    // Schritt 1: Aktualisiere IMMER den internen Zustand und die UI.
+    const iAmNowController = targetDeviceId === myDeviceId;
+    roomState.hasCamera = iAmNowController;
+    roomState.amCurrentCameraMaster = iAmNowController;
 
-    if (targetDeviceId === myDeviceId) {
-      // =========================================================
-      // ICH ÜBERNEHME DIE KONTROLLE
-      // =========================================================
-      roomState.hasCamera = true;
-      roomState.amCurrentCameraMaster = true;
+    updateCameraStatus(
+      iAmNowController
+        ? "📹 CAMERA CONTROL ACTIVE"
+        : `⏸️ ${targetDeviceId} has camera`,
+      iAmNowController ? "green" : "gray"
+    );
 
-      const localStream = frameLink.api.getState().localStream;
-      if (localStream && localStream.getVideoTracks().length > 0) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        const videoSender = externalCall
-          .getSenders()
-          .find((s) => s.track?.kind === "video");
+    // Schritt 2: Führe die WebRTC-Aktion (replaceTrack) NUR aus, wenn ein Anruf aktiv ist.
+    const externalCall = frameLink.api.getState().currentCall;
+    if (roomState.callActiveWithExternal && externalCall) {
+      const videoSender = externalCall
+        .getSenders()
+        .find((s) => s.track?.kind === "video");
+      if (!videoSender) {
+        frameLink.log(
+          "❌ Cannot switch: No video sender found in external call."
+        );
+        return;
+      }
 
-        if (videoSender) {
+      if (iAmNowController) {
+        // ICH ÜBERNEHME
+        const localStream = frameLink.api.getState().localStream;
+        if (localStream && localStream.getVideoTracks().length > 0) {
+          const videoTrack = localStream.getVideoTracks()[0];
           frameLink.log(
             `✅ Replacing external call track with my local video track.`
           );
           await videoSender.replaceTrack(videoTrack);
         }
-      }
-      updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
-    } else {
-      // =========================================================
-      // EIN ANDERES GERÄT ÜBERNIMMT
-      // =========================================================
-      roomState.hasCamera = false;
-      roomState.amCurrentCameraMaster = false;
-
-      const videoSender = externalCall
-        .getSenders()
-        .find((s) => s.track?.kind === "video");
-      if (videoSender) {
+      } else {
+        // ICH GEBE AB
         frameLink.log(
           `✅ Stopping my video track for external call (setting to null).`
         );
         await videoSender.replaceTrack(null);
       }
-      updateCameraStatus(`⏸️ ${targetDeviceId} has camera`, "gray");
-    }
-
-    // WICHTIG: Stelle sicher, dass die Raum-Videos davon unberührt bleiben
-    // (Diese Funktion sollte bereits in deinem Code existieren)
-    if (typeof ensureRoomVideosStayActive === "function") {
-      ensureRoomVideosStayActive();
+    } else {
+      frameLink.log(
+        "ℹ️ No active external call, only updating UI state for camera control."
+      );
     }
   }
 

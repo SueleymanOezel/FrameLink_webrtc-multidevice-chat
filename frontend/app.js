@@ -412,6 +412,14 @@ async function startCall() {
       })
     );
 
+    if (window.multiDeviceRoom && window.multiDeviceRoom.isInRoom()) {
+      frameLink.api.sendMessage({
+        type: "room-call-status-update",
+        roomId: window.multiDeviceRoom.roomId,
+        isActive: true,
+      });
+    }
+
     showStatus("Call started...", "blue");
     log("📤 Call offer sent");
 
@@ -466,6 +474,14 @@ async function handleOffer(message) {
         answer: answer,
       })
     );
+
+    if (window.multiDeviceRoom && window.multiDeviceRoom.isInRoom()) {
+      frameLink.api.sendMessage({
+        type: "room-call-status-update",
+        roomId: window.multiDeviceRoom.roomId,
+        isActive: true,
+      });
+    }
 
     showStatus("Incoming call accepted", "green");
     log("📤 Answer sent");
