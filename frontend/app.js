@@ -281,63 +281,57 @@ function toggleMicrophone() {
 // 🏭 PEERCONNECTION CREATION (enhanced)
 // ================================================================
 
-function createPeerConnection() {
+function createPeerConnection(isForRoom = false) {
   const config = {
     iceServers: TURN_CONFIG.iceServers,
     iceTransportPolicy: "all",
-    iceCandidatePoolSize: 10,
-    bundlePolicy: "max-bundle",
-    rtcpMuxPolicy: "require",
   };
 
-  peerConnection = new RTCPeerConnection(config);
-  window.peerConnection = peerConnection; // Global access
+  // Erstelle immer eine NEUE, lokale PeerConnection-Instanz
+  const newPc = new RTCPeerConnection(config);
+  frameLink.log(
+    `🏭 PeerConnection created (${isForRoom ? "FOR ROOM" : "FOR EXTERNAL CALL"})`
+  );
 
-  // Add local stream if available
+  // NUR wenn es KEINE Raum-Verbindung ist, setze die globale Variable.
+  // Das ist der entscheidende Fix.
+  if (!isForRoom) {
+    peerConnection = newPc;
+    window.peerConnection = newPc;
+  }
+
+  // Füge den lokalen Stream hinzu, falls vorhanden
   if (localStream) {
     localStream.getTracks().forEach((track) => {
-      peerConnection.addTrack(track, localStream);
+      newPc.addTrack(track, localStream);
     });
   }
 
-  // Handle remote stream
-  peerConnection.ontrack = (event) => {
-    log("📹 Remote stream received");
+  // Die Event-Handler bleiben gleich, gelten aber für die neue Instanz `newPc`
+  newPc.ontrack = (event) => {
+    frameLink.log("📹 Remote stream received");
     remoteVideo.srcObject = event.streams[0];
     showStatus("Connection established!", "green");
   };
 
-  // Connection state monitoring
-  peerConnection.onconnectionstatechange = () => {
-    const state = peerConnection.connectionState;
-    log(`🔗 Connection state: ${state}`);
-    showStatus(`Connection: ${state}`, "blue");
-
-    if (state === "connected") {
-      log("🎉 WebRTC connection successful!");
-    } else if (state === "failed" || state === "disconnected") {
-      showStatus("Connection lost - please restart", "orange");
+  newPc.onconnectionstatechange = () => {
+    const state = newPc.connectionState;
+    // Logge nur, wenn es sich nicht um eine stille Raum-Verbindung handelt
+    if (!isForRoom) {
+      frameLink.log(`🔗 Connection state: ${state}`);
+      showStatus(`Connection: ${state}`, "blue");
+    }
+    if (state === "connected" && !isForRoom) {
+      frameLink.log("🎉 WebRTC connection successful!");
     }
   };
 
-  // ICE candidate handling with TURN logging
-  peerConnection.onicecandidate = (event) => {
+  newPc.onicecandidate = (event) => {
     if (event.candidate) {
-      const candidate = event.candidate;
-
-      // Enhanced logging for TURN debugging
-      if (candidate.type === "relay") {
-        log(
-          `🎉 TURN relay found: ${candidate.address}:${candidate.port} (${candidate.protocol})`
-        );
-      } else if (candidate.type === "srflx") {
-        log(`📡 STUN candidate: ${candidate.address}:${candidate.port}`);
-      } else if (candidate.type === "host") {
-        log(`🏠 Host candidate: ${candidate.address}`);
-      }
-
-      // Send candidate
-      if (socket && socket.readyState === WebSocket.OPEN) {
+      // Die Logik zum Senden des ICE-Kandidaten bleibt gleich,
+      // aber wir senden sie nur für die EXTERNE Verbindung.
+      // Die Raum-Verbindung hat ihren eigenen ICE-Handler in simple-room.js
+      if (!isForRoom && socket && socket.readyState === WebSocket.OPEN) {
         socket.send(
           JSON.stringify({
             type: "ice",
@@ -345,13 +339,11 @@ function createPeerConnection() {
           })
         );
       }
-    } else {
-      log("🔚 ICE gathering complete");
     }
   };
 
-  log("🏭 PeerConnection created");
-  return peerConnection;
+  // Gib die NEUE Instanz zurück
+  return newPc;
 }
 
 // ================================================================
