@@ -749,6 +749,39 @@ function updateCallStatus(message) {
 }
 
 // ================================================================
+// 🛡️ ROOM VIDEO STREAM PROTECTION - VERHINDERT SCHWARZE BILDSCHIRME
+// ================================================================
+
+// Stelle sicher dass Room-Videos IMMER aktiv bleiben
+function ensureRoomVideosStayActive() {
+  // Room Videos dürfen NIEMALS deaktiviert werden
+  const localRoomVideo = document.getElementById("localRoomVideo");
+  if (localRoomVideo && localRoomVideo.srcObject) {
+    localRoomVideo.srcObject.getVideoTracks().forEach((track) => {
+      track.enabled = true; // IMMER aktiv
+    });
+  }
+
+  // Setze auch opacity/visibility zurück falls versteckt
+  if (localRoomVideo) {
+    localRoomVideo.style.opacity = "1";
+    localRoomVideo.style.visibility = "visible";
+    localRoomVideo.style.display = "block";
+  }
+
+  // Prüfe auch alle anderen Room-Videos
+  document.querySelectorAll(".room-video").forEach((video) => {
+    if (video.srcObject) {
+      video.srcObject.getVideoTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      video.style.opacity = "1";
+      video.style.visibility = "visible";
+    }
+  });
+}
+
+// ================================================================
 // 📨 ROOM MESSAGE HANDLING
 // ================================================================
 
@@ -879,53 +912,54 @@ class RoomMessageHandler {
     const iWasController =
       roomState.hasCamera && roomState.amCurrentCameraMaster;
 
+    // 🛡️ WICHTIG: Room-Videos bleiben IMMER aktiv
+    ensureRoomVideosStayActive();
+
     if (targetDeviceId === myDeviceId) {
-      // ————————————————————————————————
-      // ✅ Ich übernehme nun die Kamera
+      // ✅ Ich übernehme die Kamera
       roomState.hasCamera = true;
       roomState.amCurrentCameraMaster = true;
 
-      // Stelle sicher, dass localStream aktiv & Video‑Tracks eingeschaltet sind
+      // Stelle sicher, dass localStream aktiv ist
       await this.ensureLocalStreamActive();
-      frameLink.core.localStream.getVideoTracks().forEach((track) => {
-        track.enabled = true;
-        frameLink.log(`📹 Enabled local track: ${track.label}`);
-      });
 
-      // Wenn gerade ein externer Call läuft, ersetze das Video‑Track
+      // Aktiviere NUR für externe Calls, nicht für Room-Videos
+      if (frameLink.core.localStream) {
+        frameLink.core.localStream.getVideoTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      }
+
+      // Wenn externes Call aktiv ist, ersetze Track
       if (roomState.callActiveWithExternal && frameLink.core.currentCall) {
         await this.replaceExternalCallTracks();
       }
 
-      // Falls externer Call aktiv ist, aber noch keine PeerConnection besteht
-      if (roomState.callActiveWithExternal && !frameLink.core.currentCall) {
-        frameLink.log("📞 Call state missing – starte takeover");
-        this.initiateCallTakeover();
-      }
+      updateCameraStatus("📹 CAMERA CONTROL ACTIVE", "green");
     } else {
-      // ————————————————————————————————
-      // ❌ Ein anderes Gerät übernimmt die Kamera
+      // ❌ Ein anderes Gerät übernimmt
       roomState.hasCamera = false;
       roomState.amCurrentCameraMaster = false;
 
-      // Nur das Video im externen Call deaktivieren, Room‑Streams bleiben erhalten
-      const pc = frameLink.core.currentCall;
-      if (iWasController && pc) {
+      // NUR externe Call-Tracks deaktivieren
+      if (roomState.callActiveWithExternal && frameLink.core.currentCall) {
+        const pc = frameLink.core.currentCall;
         pc.getSenders().forEach((sender) => {
           if (sender.track && sender.track.kind === "video") {
             sender.track.enabled = false;
-            frameLink.log(
-              `⏸️ Disabled previous external track: ${sender.track.label}`
-            );
           }
         });
       }
+
+      updateCameraStatus(`⏸️ ${targetDeviceId} has camera`, "gray");
     }
 
-    // UI und interner Status updaten
+    // 🛡️ WICHTIG: Nach jedem Switch Room-Videos prüfen
+    ensureRoomVideosStayActive();
+
+    // Update UI
     this.updateExternalCallController(targetDeviceId);
   }
-
   async replaceExternalCallTracks() {
     const pc = frameLink.core.currentCall;
     const stream = frameLink.core.localStream;
@@ -2959,6 +2993,33 @@ class EnhancedRoomSystem {
             fakeMessage
           );
         }
+      },
+
+      // 🛡️ NEU: Fix für schwarze Bildschirme
+      fixBlackScreens: () => {
+        console.log("🔧 Fixing black screens...");
+
+        // Force-enable alle Room Videos
+        document
+          .querySelectorAll(".room-video, #localRoomVideo")
+          .forEach((video) => {
+            if (video.srcObject) {
+              video.srcObject.getVideoTracks().forEach((track) => {
+                track.enabled = true;
+                console.log(`✅ Enabled track for video: ${video.id}`);
+              });
+              video.style.opacity = "1";
+              video.style.visibility = "visible";
+              video.style.display = "block";
+            }
+          });
+
+        // Rufe auch die protection function auf
+        if (typeof ensureRoomVideosStayActive === "function") {
+          ensureRoomVideosStayActive();
+        }
+
+        console.log("✅ Room videos should be visible now!");
       },
 
       checkExternalCallStatus: () => {

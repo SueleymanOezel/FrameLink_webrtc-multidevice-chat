@@ -48,7 +48,7 @@
   function processFaceDetectionForAutoSwitch(deviceId, hasFace, confidence) {
     if (!autoCameraSwitching.enabled) return;
 
-    // 🔴 AUTO-ASSIGN: If no one has camera, give it to first face detected
+    // 🎯 NEU: AUTO-ASSIGN - Wenn niemand Kamera hat, gib sie dem ersten Gesicht
     if (
       !autoCameraSwitching.currentControllingDevice &&
       hasFace &&
@@ -63,6 +63,7 @@
         confidence,
         automatic: true,
       });
+      return; // Wichtig: Hier aufhören
     }
 
     // 🔴 CRITICAL FIX: Initialize currentControllingDevice if not set
