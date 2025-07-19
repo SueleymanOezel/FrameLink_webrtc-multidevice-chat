@@ -1954,23 +1954,15 @@ class RoomVideoManager {
     );
 
     try {
-      // Create peer connection using frameLink API
+      // Create peer connection using frameLink API.
+      // Die Funktion in app.js fügt die Tracks bereits hinzu.
       const peerConnection = frameLink.api.createPeerConnection();
       roomState.roomPeerConnections.set(remoteDeviceId, peerConnection);
 
       // Setup handlers FIRST
       this.setupRoomPeerConnectionHandlers(peerConnection, remoteDeviceId);
 
-      // Add local stream
-      const coreState = frameLink.api.getState();
-      if (coreState.localStream) {
-        coreState.localStream.getTracks().forEach((track) => {
-          peerConnection.addTrack(track, coreState.localStream);
-          console.log(`📹 Added track: ${track.kind} to ${remoteDeviceId}`);
-        });
-      } else {
-        console.log(`⚠️ No local stream for peer ${remoteDeviceId}`);
-      }
+      // Der doppelte Code-Block wurde hier entfernt.
 
       // Create offer
       const offer = await peerConnection.createOffer({
