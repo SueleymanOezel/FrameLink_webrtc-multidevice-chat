@@ -1,11 +1,6 @@
 // ================================================================
 // 🏠 ENHANCED SIMPLE-ROOM.JS - PHASE 2 COMPLETE
 // ================================================================
-// Responsibilities: Multi-Device Room, Face Detection, Room Video Streaming
-// Integrates: room-video-streaming.js + face-detection.js + original logic
-// Uses: frameLink.api from enhanced app.js
-// Status: PRODUCTION READY
-// ================================================================
 
 console.log("🏠 Enhanced Room System loading...");
 
