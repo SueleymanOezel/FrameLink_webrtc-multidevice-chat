@@ -1,5 +1,5 @@
 // ================================================================
-// 📱 SIMPLIFIED APP.JS - Back to Working Architecture
+// 📱 APP.JS
 // ================================================================
 // Simplified from complex frameLink to basic global variables
 // Based on the old working version but with enhanced TURN config

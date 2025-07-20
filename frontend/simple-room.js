@@ -1,5 +1,5 @@
 // ================================================================
-// 🏠 ENHANCED SIMPLE-ROOM.JS - PHASE 2 COMPLETE
+// 🏠 SIMPLE-ROOM.JS
 // ================================================================
 
 console.log("🏠 Enhanced Room System loading...");
